@@ -1,0 +1,48 @@
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: cnpg-replica-pod-delete-v2
+  namespace: default
+  labels:
+    instance_id: cnpg-replica-chaos
+    context: cloudnativepg-replica-resilience
+    experiment_type: pod-delete
+    target_type: replica
+spec:
+  engineState: "active"
+  appinfo:
+    appns: "default"
+    applabel: "cnpg.io/cluster=pg-eu"
+    appkind: "deployment"
+  annotationCheck: "false"
+  chaosServiceAccount: litmus-admin
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            # Conservative duration for database workloads
+            - name: TOTAL_CHAOS_DURATION
+              value: "30"
+            # Extended ramp time for PostgreSQL preparation
+            - name: RAMP_TIME
+              value: "10"
+            # Longer interval between deletions for replica recovery
+            - name: CHAOS_INTERVAL
+              value: "15"
+            # Force delete to simulate node failures
+            - name: FORCE
+              value: "true"
+            # Randomly select one of the replica pods (not the primary)
+            - name: TARGET_PODS
+              value: "pg-eu-2,pg-eu-3"
+            # Target one random pod from the list
+            - name: PODS_AFFECTED_PERC
+              value: "50"
+            # Serial execution to avoid simultaneous replica failures
+            - name: SEQUENCE
+              value: "serial"
+            # Enable health checks for PostgreSQL
+            - name: DEFAULT_HEALTH_CHECK
+              value: "false"
+        probe: []

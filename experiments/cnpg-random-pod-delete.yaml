@@ -1,0 +1,42 @@
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: cnpg-random-pod-delete
+  namespace: default
+  labels:
+    instance_id: cnpg-random-chaos
+    context: cloudnativepg-random-failure
+    experiment_type: pod-delete
+    target_type: random
+    risk_level: medium
+spec:
+  engineState: "active"
+  annotationCheck: "false"
+  appinfo:
+    appns: "default"
+    applabel: "cnpg.io/cluster=pg-eu"
+    appkind: "deployment"
+  chaosServiceAccount: litmus-admin
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            # Medium duration for random failure simulation
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            # Standard ramp time
+            - name: RAMP_TIME
+              value: "10"
+            # Regular intervals for unpredictable failures
+            - name: CHAOS_INTERVAL
+              value: "20"
+            # Force delete for realistic failure simulation
+            - name: FORCE
+              value: "true"
+            # Target random replica pod (avoiding primary)
+            - name: TARGET_PODS
+              value: "pg-eu-3"
+            # Serial execution for controlled chaos
+            - name: SEQUENCE
+              value: "serial"

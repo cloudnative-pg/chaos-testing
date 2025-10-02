@@ -1,0 +1,42 @@
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: cnpg-primary-pod-delete
+  namespace: default
+  labels:
+    instance_id: cnpg-primary-chaos
+    context: cloudnativepg-failover-testing
+    experiment_type: pod-delete
+    target_type: primary
+    risk_level: high
+spec:
+  engineState: "active"
+  annotationCheck: "false"
+  appinfo:
+    appns: "default"
+    applabel: "cnpg.io/cluster=pg-eu"
+    appkind: "deployment"
+  chaosServiceAccount: litmus-admin
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            # Time duration for chaos insertion (delete primary pod)
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            # Time interval between pod failures (single execution)
+            - name: CHAOS_INTERVAL
+              value: "30"
+            # Force delete to simulate abrupt primary failure
+            - name: FORCE
+              value: "true"
+            # Target specific primary pod by name
+            - name: TARGET_PODS
+              value: "pg-eu"
+            # Period to wait before and after chaos injection
+            - name: RAMP_TIME
+              value: "10"
+            # Serial execution for controlled failover
+            - name: SEQUENCE
+              value: "serial"
