@@ -8,6 +8,7 @@ hard-coding pod names** in the `TARGET_PODS` environment variable.
 
 - **PostgreSQL topology**: The `pg-eu` [`Cluster`](../pg-eu-cluster.yaml)
   resource provisions three instances (one primary and two replicas). Pods are
+
   ```diff
   --- a/pkg/utils/common/pods.go
   +++ b/pkg/utils/common/pods.go
@@ -47,11 +48,14 @@ hard-coding pod names** in the `TARGET_PODS` environment variable.
   +		}
   +		podKind = true
 
+  ```
+
 - Fetches the active list of pods that match `cnpg.io/instanceRole=primary` at
 
   The important addition is the new label-aware branch inside `case "pod"`,
   which reuses `FilterNonChaosPods` to expand any selectors provided via `APP_LABEL`.
   runtime.
+
 - Injects chaos against whichever pod currently owns the primary role.
 - Continues to honour Litmus tunables (duration, interval, sequence, probes).
 
@@ -176,3 +180,4 @@ without any explicit pod name lists.
 This approach keeps the chaos configuration declarative, dynamic, and resilient
 across automatic failovers—exactly what we want for exercising CloudNativePG in
 production-like scenarios.
+```
