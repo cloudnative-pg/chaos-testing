@@ -14,29 +14,31 @@ spec:
   annotationCheck: "false"
   appinfo:
     appns: "default"
-    applabel: "cnpg.io/cluster=pg-eu"
-    appkind: "deployment"
+    applabel: "cnpg.io/instanceRole=primary"
+    appkind: "clusters.postgresql.cnpg.io" # CloudNativePG Cluster CRD - enables label-based pod selection
   chaosServiceAccount: litmus-admin
   experiments:
     - name: pod-delete
       spec:
         components:
           env:
-            # Time duration for chaos insertion (delete primary pod)
+            # Time duration for chaos insertion (delete primary pod 5 times)
+            # With 60s intervals, we allow time for failover + label updates
             - name: TOTAL_CHAOS_DURATION
-              value: "60"
-            # Time interval between pod failures (single execution)
+              value: "300"
+            # Time interval between pod failures (60s allows full failover cycle)
+            # This gives CloudNativePG ~60s to complete failover and update labels
+            # before the next primary selection
             - name: CHAOS_INTERVAL
-              value: "30"
+              value: "60"
             # Force delete to simulate abrupt primary failure
             - name: FORCE
               value: "true"
-            # Target specific primary pod by name
-            - name: TARGET_PODS
-              value: "pg-eu"
             # Period to wait before and after chaos injection
             - name: RAMP_TIME
               value: "10"
             # Serial execution for controlled failover
             - name: SEQUENCE
               value: "serial"
+            - name: PODS_AFFECTED_PERC
+              value: "100"

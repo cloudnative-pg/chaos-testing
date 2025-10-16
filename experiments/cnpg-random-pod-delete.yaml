@@ -15,7 +15,7 @@ spec:
   appinfo:
     appns: "default"
     applabel: "cnpg.io/cluster=pg-eu"
-    appkind: "deployment"
+    appkind: "cluster"
   chaosServiceAccount: litmus-admin
   experiments:
     - name: pod-delete
@@ -24,7 +24,7 @@ spec:
           env:
             # Medium duration for random failure simulation
             - name: TOTAL_CHAOS_DURATION
-              value: "60"
+              value: "100"
             # Standard ramp time
             - name: RAMP_TIME
               value: "10"
@@ -34,9 +34,9 @@ spec:
             # Force delete for realistic failure simulation
             - name: FORCE
               value: "true"
-            # Target random replica pod (avoiding primary)
-            - name: TARGET_PODS
-              value: "pg-eu-3"
+            # Target a single pod at random using pods affected percentage
+            - name: PODS_AFFECTED_PERC
+              value: "100"
             # Serial execution for controlled chaos
             - name: SEQUENCE
               value: "serial"

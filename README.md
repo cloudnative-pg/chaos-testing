@@ -13,6 +13,15 @@ conditions and ensure PostgreSQL clusters behave as expected under failure.
 
 ---
 
+## Quick Links
+
+- 📖 [**Quick Start Guide**](QUICKSTART.md) - Run chaos experiments in 5 minutes
+- 💡 [**Solution Overview**](SOLUTION.md) - How we achieved label-based targeting
+- 📝 [**Experiment Guide**](EXPERIMENT-GUIDE.md) - Detailed experiment documentation
+- 🎯 [**Primary Pod Chaos**](docs/primary-pod-chaos-without-target-pods.md) - Deep dive on dynamic targeting
+
+---
+
 ## Motivation & Goals
 
 - Identify weak points in CloudNativePG (e.g., failover, recovery, slowness,

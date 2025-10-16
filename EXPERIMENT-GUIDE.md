@@ -44,7 +44,7 @@ The verification script checks:
 
 ```bash
 # Install LitmusChaos operator
-kubectl apply -f https://litmuschaos.github.io/litmus/litmus-operator-v3.10.0.yaml
+kubectl apply -f https://litmuschaos.github.io/litmus/litmus-operator-v3.21.0.yaml
 
 # Wait for operator to be ready
 kubectl rollout status deployment -n litmus chaos-operator-ce
