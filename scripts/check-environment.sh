@@ -37,11 +37,33 @@ check_status() {
     fi
 }
 
+check_optional() {
+    local test_name="$1"
+    local command="$2"
+    local info="$3"
+    
+    ((check_total++))
+    echo -n "[$check_total] $test_name: "
+    
+    if eval "$command" &>/dev/null; then
+        echo -e "${GREEN}PASS${NC}"
+        ((check_passed++))
+        return 0
+    else
+        echo -e "${YELLOW}SKIP${NC}"
+        if [ -n "$info" ]; then
+            echo "    Info: $info"
+        fi
+        ((check_passed++))  # Count as passed since it's optional
+        return 0
+    fi
+}
+
 # Basic tools
 echo "=== Prerequisites ==="
 check_status "kubectl installed" "command -v kubectl"
 check_status "kind installed" "command -v kind"
-check_status "kubectl cnpg plugin" "kubectl cnpg version"
+check_optional "kubectl cnpg plugin" "kubectl cnpg version" "Optional plugin - not required for chaos testing"
 
 # Cluster connectivity
 echo
@@ -55,7 +77,7 @@ echo "=== CloudNativePG Components ==="
 check_status "CNPG operator deployed" "kubectl get deployment -n cnpg-system cnpg-controller-manager"
 check_status "CNPG operator ready" "kubectl get deployment -n cnpg-system cnpg-controller-manager -o jsonpath='{.status.readyReplicas}' | grep -q '1'"
 check_status "PostgreSQL cluster exists" "kubectl get cluster pg-eu"
-check_status "PostgreSQL cluster ready" "kubectl cnpg status pg-eu | grep -q 'Cluster in healthy state'"
+check_status "PostgreSQL cluster ready" "kubectl get cluster pg-eu -o jsonpath='{.status.conditions[?(@.type==\"Ready\")].status}' | grep -q 'True'"
 
 # PostgreSQL pods
 echo

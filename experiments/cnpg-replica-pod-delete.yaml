@@ -43,4 +43,45 @@ spec:
             # Enable health checks for PostgreSQL
             - name: DEFAULT_HEALTH_CHECK
               value: "true"
-        probe: []
+        probe:
+          - name: cnpg-exporter-up-pre
+            type: promProbe
+            promProbe/inputs:
+              endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
+              query: 'min_over_time(cnpg_collector_up{cluster="pg-eu"}[1m])'
+              comparator:
+                criteria: ">="
+                value: "1"
+            mode: SOT
+            runProperties:
+              probeTimeout: 10
+              interval: 10
+              retry: 3
+          - name: cnpg-replication-lag-during
+            type: promProbe
+            promProbe/inputs:
+              endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
+              # Replication lag should not explode: allow an upper bound during chaos (<= 30s)
+              query: "max_over_time(cnpg_pg_replication_lag[2m])"
+              comparator:
+                criteria: "<="
+                value: "30"
+            mode: Edge
+            runProperties:
+              probeTimeout: 10
+              interval: 20
+              retry: 2
+          - name: cnpg-replication-lag-post
+            type: promProbe
+            promProbe/inputs:
+              endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
+              # After chaos, ensure lag settles under strict threshold
+              query: "max_over_time(cnpg_pg_replication_lag[2m])"
+              comparator:
+                criteria: "<="
+                value: "5"
+            mode: EOT
+            runProperties:
+              probeTimeout: 10
+              interval: 15
+              retry: 4

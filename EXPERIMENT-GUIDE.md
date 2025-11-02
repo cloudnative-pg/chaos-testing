@@ -163,6 +163,32 @@ Key configuration parameters in the experiments:
 
 ## Results Analysis
 
+## Prometheus-based Verification (Recommended)
+
+This repo integrates Litmus promProbes to validate experiments against CloudNativePG Prometheus metrics.
+
+Prerequisites:
+
+- A Prometheus instance scraping CNPG pods via a PodMonitor
+- The Prometheus service endpoint reachable from experiment pods (default used: `http://prometheus-k8s.monitoring.svc:9090`)
+
+Set up Prometheus scraping:
+
+```bash
+# Apply PodMonitor for the pg-eu cluster
+./scripts/setup-prometheus-monitoring.sh
+```
+
+What is verified:
+
+- Exporter availability: `cnpg_collector_up` remains 1 pre/post chaos
+- Replication health: `cnpg_pg_replication_lag` remains under thresholds during/post chaos
+
+Notes:
+
+- If your Prometheus service name/namespace differs, edit the `promProbe/inputs.endpoint` in the manifests under `experiments/`.
+- The `cnpg_pg_replication_lag` metric is part of CNPG default monitoring queries. If disabled, re-enable defaults or add the sample from CNPG docs.
+
 ### Getting Results
 
 ```bash

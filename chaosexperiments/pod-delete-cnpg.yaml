@@ -10,8 +10,8 @@ metadata:
 spec:
   definition:
     scope: Namespaced
-    image: "litmuschaos/go-runner:latest"
-    imagePullPolicy: Always
+    image: "docker.io/xploy04/go-runner:label-intersection-v1.0"
+    imagePullPolicy: IfNotPresent
     command:
       - /bin/bash
     args:

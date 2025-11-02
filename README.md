@@ -20,6 +20,10 @@ conditions and ensure PostgreSQL clusters behave as expected under failure.
 - 📝 [**Experiment Guide**](EXPERIMENT-GUIDE.md) - Detailed experiment documentation
 - 🎯 [**Primary Pod Chaos**](docs/primary-pod-chaos-without-target-pods.md) - Deep dive on dynamic targeting
 
+Monitoring integrations:
+
+- 📊 Prometheus verification with Litmus promProbes (see "Prometheus-based Verification" in Experiment Guide)
+
 ---
 
 ## Motivation & Goals

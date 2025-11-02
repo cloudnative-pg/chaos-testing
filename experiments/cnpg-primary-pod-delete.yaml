@@ -14,31 +14,70 @@ spec:
   annotationCheck: "false"
   appinfo:
     appns: "default"
-    applabel: "cnpg.io/instanceRole=primary"
-    appkind: "clusters.postgresql.cnpg.io" # CloudNativePG Cluster CRD - enables label-based pod selection
+    applabel: "cnpg.io/cluster=pg-eu"
+    appkind: "cluster"
   chaosServiceAccount: litmus-admin
   experiments:
     - name: pod-delete
       spec:
         components:
           env:
-            # Time duration for chaos insertion (delete primary pod 5 times)
-            # With 60s intervals, we allow time for failover + label updates
+            # TARGETS completely overrides appinfo settings
+            - name: TARGETS
+              value: "cluster:default:[cnpg.io/instanceRole=replica,cnpg.io/cluster=pg-eu,cnpg.io/instanceRole=primary]:intersection"
             - name: TOTAL_CHAOS_DURATION
               value: "300"
-            # Time interval between pod failures (60s allows full failover cycle)
-            # This gives CloudNativePG ~60s to complete failover and update labels
-            # before the next primary selection
             - name: CHAOS_INTERVAL
               value: "60"
-            # Force delete to simulate abrupt primary failure
             - name: FORCE
               value: "true"
-            # Period to wait before and after chaos injection
             - name: RAMP_TIME
               value: "10"
-            # Serial execution for controlled failover
             - name: SEQUENCE
               value: "serial"
             - name: PODS_AFFECTED_PERC
               value: "100"
+        probe:
+          # Verify CNPG exporter reports up and replication recovers after failover
+          - name: cnpg-exporter-up-pre
+            type: promProbe
+            promProbe/inputs:
+              endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
+              query: 'min_over_time(cnpg_collector_up{cluster="pg-eu"}[1m])'
+              comparator:
+                criteria: ">="
+                value: "1"
+            mode: SOT
+            runProperties:
+              probeTimeout: 10
+              interval: 10
+              retry: 3
+          - name: cnpg-failover-recovery
+            type: promProbe
+            promProbe/inputs:
+              endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
+              # During chaos, replicas may be down temporarily. Post chaos, ensure exporter is up
+              query: 'min_over_time(cnpg_collector_up{cluster="pg-eu"}[2m])'
+              comparator:
+                criteria: ">="
+                value: "1"
+            mode: EOT
+            runProperties:
+              probeTimeout: 10
+              interval: 15
+              retry: 4
+          - name: cnpg-replication-lag-post
+            type: promProbe
+            promProbe/inputs:
+              endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
+              # Requires cnpg default/custom query pg_replication_lag via default monitoring
+              # Validate that lag settles under threshold after chaos (e.g., < 5 seconds)
+              query: "max_over_time(cnpg_pg_replication_lag[2m])"
+              comparator:
+                criteria: "<="
+                value: "5"
+            mode: EOT
+            runProperties:
+              probeTimeout: 10
+              interval: 15
+              retry: 4
