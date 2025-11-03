@@ -87,8 +87,8 @@ spec:
             type: cmdProbe
             mode: SOT
             runProperties:
-              probeTimeout: "10"
-              interval: "5"
+              probeTimeout: "10s"
+              interval: "5s"
               retry: 2
             cmdProbe/inputs:
               command: bash -c "kubectl exec -n default pg-eu-1 -- psql -U postgres -d app -tAc \"SELECT CASE WHEN EXISTS (SELECT 1 FROM pgbench_accounts LIMIT 1) THEN 'READY' ELSE 'NOT_READY' END;\""
@@ -102,14 +102,14 @@ spec:
             type: promProbe
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
-              query: 'min(cnpg_collector_up{cluster=\"pg-eu\"})'
+              query: min(cnpg_collector_up)
               comparator:
                 criteria: "=="
                 value: "1"
             mode: SOT
             runProperties:
-              probeTimeout: "10"
-              interval: "10"
+              probeTimeout: "10s"
+              interval: "10s"
               retry: 2
 
           # Establish baseline transaction rate
@@ -117,14 +117,14 @@ spec:
             type: promProbe
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
-              query: 'sum(rate(cnpg_pg_stat_database_xact_commit{datname=\"app\",cluster=\"pg-eu\"}[1m]))'
+              query: sum(rate(cnpg_pg_stat_database_xact_commit[1m]))
               comparator:
                 criteria: ">="
                 value: "0" # Just ensure metric exists
             mode: SOT
             runProperties:
-              probeTimeout: "10"
-              interval: "5"
+              probeTimeout: "10s"
+              interval: "5s"
               retry: 2
 
           # Verify replication is working
@@ -132,14 +132,14 @@ spec:
             type: promProbe
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
-              query: 'min(cnpg_pg_replication_streaming_replicas{cluster=\"pg-eu\"})'
+              query: min(cnpg_pg_replication_streaming_replicas)
               comparator:
                 criteria: ">="
                 value: "2" # Expect 2 replicas in 3-node cluster
             mode: SOT
             runProperties:
-              probeTimeout: "10"
-              interval: "5"
+              probeTimeout: "10s"
+              interval: "5s"
               retry: 2
 
           # ========================================
@@ -151,9 +151,9 @@ spec:
             type: cmdProbe
             mode: Continuous
             runProperties:
-              interval: "30" # Test every 30 seconds
+              interval: "30s" # Test every 30 seconds
               retry: 3 # Allow 3 retries (failover may take time)
-              probeTimeout: "20"
+              probeTimeout: "20s"
             cmdProbe/inputs:
               command: bash -c "PASSWORD=$(kubectl get secret pg-eu-credentials -o jsonpath='\''{.data.password}'\'' | base64 -d) && kubectl run chaos-write-test-$RANDOM --rm -i --restart=Never --image=postgres:16 --namespace=default --env=\"PGPASSWORD=$PASSWORD\" --command -- psql -h pg-eu-rw -U app -d app -tAc \"INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (1, 1, 1, 100, NOW()); SELECT 'SUCCESS';\""
               comparator:
@@ -166,9 +166,9 @@ spec:
             type: cmdProbe
             mode: Continuous
             runProperties:
-              interval: "30"
+              interval: "30s"
               retry: 3
-              probeTimeout: "20"
+              probeTimeout: "20s"
             cmdProbe/inputs:
               command: bash -c "PASSWORD=$(kubectl get secret pg-eu-credentials -o jsonpath='\''{.data.password}'\'' | base64 -d) && kubectl run chaos-read-test-$RANDOM --rm -i --restart=Never --image=postgres:16 --namespace=default --env=\"PGPASSWORD=$PASSWORD\" --command -- psql -h pg-eu-rw -U app -d app -tAc \"SELECT count(*) FROM pgbench_accounts WHERE aid < 1000;\""
               comparator:
@@ -182,14 +182,14 @@ spec:
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
               # Check if transactions are happening (delta > 0 means writes are flowing)
-              query: 'sum(delta(cnpg_pg_stat_database_xact_commit{datname=\"app\",cluster=\"pg-eu\"}[30s]))'
+              query: sum(delta(cnpg_pg_stat_database_xact_commit[30s]))
               comparator:
                 criteria: ">="
                 value: "0" # Allow brief pauses during failover
             mode: Continuous
             runProperties:
-              probeTimeout: "10"
-              interval: "30"
+              probeTimeout: "10s"
+              interval: "30s"
               retry: 3
 
           # Monitor read operations during chaos
@@ -197,14 +197,14 @@ spec:
             type: promProbe
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
-              query: 'sum(rate(cnpg_pg_stat_database_tup_fetched{datname=\"app\",cluster=\"pg-eu\"}[1m]))'
+              query: sum(rate(cnpg_pg_stat_database_tup_fetched[1m]))
               comparator:
                 criteria: ">="
                 value: "0"
             mode: Continuous
             runProperties:
-              probeTimeout: "10"
-              interval: "30"
+              probeTimeout: "10s"
+              interval: "30s"
               retry: 3
 
           # Monitor write operations during chaos
@@ -212,14 +212,14 @@ spec:
             type: promProbe
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
-              query: 'sum(rate(cnpg_pg_stat_database_tup_inserted{datname=\"app\",cluster=\"pg-eu\"}[1m]))'
+              query: sum(rate(cnpg_pg_stat_database_tup_inserted[1m]))
               comparator:
                 criteria: ">="
                 value: "0"
             mode: Continuous
             runProperties:
-              probeTimeout: "10"
-              interval: "30"
+              probeTimeout: "10s"
+              interval: "30s"
               retry: 3
 
           # Check rollback rate (should stay low)
@@ -228,14 +228,14 @@ spec:
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
               # Rollback rate should stay low even during chaos
-              query: 'sum(rate(cnpg_pg_stat_database_xact_rollback{datname=\"app\",cluster=\"pg-eu\"}[1m]))'
+              query: sum(rate(cnpg_pg_stat_database_xact_rollback[1m]))
               comparator:
                 criteria: "<="
                 value: "10" # Allow some rollbacks during failover
             mode: Continuous
             runProperties:
-              probeTimeout: "10"
-              interval: "30"
+              probeTimeout: "10s"
+              interval: "30s"
               retry: 3
 
           # Monitor connection count
@@ -243,14 +243,14 @@ spec:
             type: promProbe
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
-              query: 'sum(cnpg_backends_total{cluster=\"pg-eu\"})'
+              query: sum(cnpg_backends_total)
               comparator:
                 criteria: ">"
                 value: "0" # Ensure some connections are active
             mode: Continuous
             runProperties:
-              probeTimeout: "10"
-              interval: "30"
+              probeTimeout: "10s"
+              interval: "30s"
               retry: 3
 
           # ========================================
@@ -263,14 +263,14 @@ spec:
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
               # All instances should be up after chaos
-              query: 'min(cnpg_collector_up{cluster=\"pg-eu\"})'
+              query: min(cnpg_collector_up)
               comparator:
                 criteria: "=="
                 value: "1"
             mode: EOT
             runProperties:
-              probeTimeout: "15"
-              interval: "15"
+              probeTimeout: "15s"
+              interval: "15s"
               retry: 6 # Give more time for recovery
 
           # Verify replication lag recovered
@@ -279,14 +279,14 @@ spec:
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
               # Lag should be minimal after recovery
-              query: 'max_over_time(cnpg_pg_replication_lag{cluster=\"pg-eu\"}[2m])'
+              query: max(max_over_time(cnpg_pg_replication_lag[2m]))
               comparator:
                 criteria: "<="
                 value: "5" # Lag should be < 5 seconds post-recovery
             mode: EOT
             runProperties:
-              probeTimeout: "15"
-              interval: "15"
+              probeTimeout: "15s"
+              interval: "15s"
               retry: 6
 
           # Verify transactions resumed
@@ -295,14 +295,14 @@ spec:
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
               # Verify transactions are flowing again
-              query: 'sum(rate(cnpg_pg_stat_database_xact_commit{datname=\"app\",cluster=\"pg-eu\"}[1m]))'
+              query: sum(rate(cnpg_pg_stat_database_xact_commit[1m]))
               comparator:
                 criteria: ">"
                 value: "0"
             mode: EOT
             runProperties:
-              probeTimeout: "15"
-              interval: "15"
+              probeTimeout: "15s"
+              interval: "15s"
               retry: 5
 
           # Verify all replicas are streaming
@@ -310,14 +310,14 @@ spec:
             type: promProbe
             promProbe/inputs:
               endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
-              query: 'min(cnpg_pg_replication_streaming_replicas{cluster=\"pg-eu\"})'
+              query: min(cnpg_pg_replication_streaming_replicas)
               comparator:
                 criteria: ">="
                 value: "2"
             mode: EOT
             runProperties:
-              probeTimeout: "15"
-              interval: "15"
+              probeTimeout: "15s"
+              interval: "15s"
               retry: 5
 
           # Final write test - ensure database is writable
@@ -325,8 +325,8 @@ spec:
             type: cmdProbe
             mode: EOT
             runProperties:
-              probeTimeout: "20"
-              interval: "10"
+              probeTimeout: "20s"
+              interval: "10s"
               retry: 5
             cmdProbe/inputs:
               command: bash -c "PASSWORD=$(kubectl get secret pg-eu-credentials -o jsonpath='\''{.data.password}'\'' | base64 -d) && kubectl run chaos-final-test-$RANDOM --rm -i --restart=Never --image=postgres:16 --namespace=default --env=\"PGPASSWORD=$PASSWORD\" --command -- psql -h pg-eu-rw -U app -d app -tAc \"INSERT INTO pgbench_history (tid, bid, aid, delta, mtime) VALUES (999, 999, 999, 999, NOW()); SELECT 'FINAL_SUCCESS';\""
@@ -340,8 +340,8 @@ spec:
             type: cmdProbe
             mode: EOT
             runProperties:
-              probeTimeout: "60"
-              interval: "10"
+              probeTimeout: "60s"
+              interval: "10s"
               retry: 3
             cmdProbe/inputs:
               command: bash -c "/home/xploy04/Documents/chaos-testing/scripts/verify-data-consistency.sh pg-eu app default 2>&1 | grep -q 'ALL CONSISTENCY CHECKS PASSED' && echo CONSISTENCY_PASS || echo CONSISTENCY_FAIL"
