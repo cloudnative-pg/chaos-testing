@@ -103,6 +103,84 @@ if ! kubectl get svc -n monitoring prometheus-kube-prometheus-prometheus &>/dev/
   log_warn "Prometheus service not found - metrics validation may fail"
 else
   log_success "Prometheus found"
+  
+  # ============================================================
+  # Configure Prometheus Monitoring (if not already done)
+  # ============================================================
+  log "Checking if PodMonitor exists for cluster..."
+  PODMONITOR_EXISTS=$(kubectl get podmonitor -n monitoring cnpg-${CLUSTER_NAME}-monitor 2>/dev/null || true)
+  
+  if [ -z "$PODMONITOR_EXISTS" ]; then
+    log "Creating PodMonitor to enable metrics scraping..."
+    
+    cat <<PODMONITOR_EOF | kubectl apply -f - | tee -a "$LOG_FILE"
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cnpg-${CLUSTER_NAME}-monitor
+  namespace: monitoring
+  labels:
+    app: cloudnative-pg
+    cluster: ${CLUSTER_NAME}
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: $CLUSTER_NAME
+  podMetricsEndpoints:
+  - port: metrics
+  namespaceSelector:
+    matchNames:
+    - $NAMESPACE
+PODMONITOR_EOF
+    
+    if [ $? -eq 0 ]; then
+      log_success "PodMonitor created - Prometheus will now scrape CNPG metrics"
+      log "Waiting 15s for Prometheus to discover targets..."
+      sleep 15
+    else
+      log_warn "Failed to create PodMonitor - metrics may not be available"
+    fi
+  else
+    log_success "PodMonitor already exists - metrics collection active"
+  fi
+  
+  # Verify metrics are being scraped
+  log "Verifying CNPG metrics are available..."
+  
+  # Check if curl is available
+  if command -v curl &>/dev/null; then
+    # Start port-forward in background (disable errexit temporarily)
+    set +e
+    kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090 &>/dev/null &
+    PF_PID=$!
+    sleep 3
+    
+    # Try to query metrics
+    METRICS_CHECK=$(curl -s -m 5 "http://localhost:9090/api/v1/query?query=cnpg_collector_up{cluster=\"$CLUSTER_NAME\"}" 2>/dev/null | grep -o '"status":"success"' || echo "")
+    
+    if [ -n "$METRICS_CHECK" ]; then
+      # Get the actual metric value to see if pods are up
+      METRIC_COUNT=$(curl -s -m 5 "http://localhost:9090/api/v1/query?query=cnpg_collector_up{cluster=\"$CLUSTER_NAME\"}" 2>/dev/null | grep -o '"pod":"[^"]*"' | wc -l || echo "0")
+      if [ "$METRIC_COUNT" -gt 0 ]; then
+        log_success "✅ CNPG metrics confirmed - monitoring $METRIC_COUNT pod(s)"
+      else
+        log_warn "⚠️  CNPG metrics found but no active pods detected yet"
+      fi
+    else
+      log_warn "⚠️  CNPG metrics not yet available (may take 1-2 minutes after PodMonitor creation)"
+      log "Continuing with test - metrics will be collected in background"
+    fi
+    
+    # Kill port-forward
+    kill $PF_PID 2>/dev/null || true
+    wait $PF_PID 2>/dev/null || true
+    
+    # Re-enable errexit
+    set -e
+  else
+    log_warn "curl not found - skipping metrics verification"
+    log "Prometheus will start scraping metrics automatically"
+  fi
 fi
 
 log "Checking Litmus ChaosEngine CRD..."
@@ -204,7 +282,7 @@ spec:
   parallelism: 3
   completions: 3
   backoffLimit: 0
-  activeDeadlineSeconds: $WORKLOAD_DURATION
+  activeDeadlineSeconds: $((WORKLOAD_DURATION + 60))
   template:
     metadata:
       labels:
@@ -473,8 +551,21 @@ echo "" | tee -a "$LOG_FILE"
 
 echo "Next Steps:" | tee -a "$LOG_FILE"
 echo "  1. Review logs:     cat $LOG_FILE" | tee -a "$LOG_FILE"
-echo "  2. Check Grafana:   kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-grafana 3000:80" | tee -a "$LOG_FILE"
+
+# Smart Grafana detection
+GRAFANA_SVC=$(kubectl get svc -n monitoring -o name 2>/dev/null | grep grafana | head -1 | sed 's|service/||')
+if [ -n "$GRAFANA_SVC" ]; then
+  echo "  2. Check Grafana:   kubectl port-forward -n monitoring svc/$GRAFANA_SVC 3000:80" | tee -a "$LOG_FILE"
+  echo "     Access at:       http://localhost:3000" | tee -a "$LOG_FILE"
+  echo "     Get password:    kubectl get secret -n monitoring $GRAFANA_SVC -o jsonpath='{.data.admin-password}' | base64 --decode" | tee -a "$LOG_FILE"
+else
+  echo "  2. Check Grafana:   (Grafana not found - install it or use Prometheus directly)" | tee -a "$LOG_FILE"
+fi
+
 echo "  3. Query Prometheus: kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090" | tee -a "$LOG_FILE"
+echo "     Access at:       http://localhost:9090" | tee -a "$LOG_FILE"
+echo "     Key metrics:     cnpg_collector_up{cluster=\"$CLUSTER_NAME\"}" | tee -a "$LOG_FILE"
+echo "                      cnpg_pg_replication_lag{cluster=\"$CLUSTER_NAME\"}" | tee -a "$LOG_FILE"
 echo "  4. Clean up:        kubectl delete job $JOB_NAME -n $NAMESPACE" | tee -a "$LOG_FILE"
 echo "  5. Rerun test:      $0 $@" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
