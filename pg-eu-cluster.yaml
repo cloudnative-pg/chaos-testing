@@ -30,7 +30,10 @@ spec:
     size: 1Gi
     storageClass: standard
 
-  # Monitoring (enabled by default in CNPG)
+  monitoring:
+    enabled: true
+    tls:
+      enabled: false
 
   # Resources
   resources:

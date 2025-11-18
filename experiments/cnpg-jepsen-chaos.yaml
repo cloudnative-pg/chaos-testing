@@ -34,7 +34,7 @@ apiVersion: litmuschaos.io/v1alpha1
 kind: ChaosEngine
 metadata:
   name: cnpg-jepsen-chaos
-  namespace: default
+  namespace: litmus
   labels:
     instance_id: cnpg-jepsen-chaos
     context: cloudnativepg-consistency-testing
@@ -49,7 +49,7 @@ spec:
   # Target the CNPG cluster
   appinfo:
     appns: "default"
-    applabel: "cnpg.io/cluster=pg-eu"
+    applabel: "cnpg.io/instanceRole=primary"
     appkind: "cluster"
 
   chaosServiceAccount: litmus-admin
@@ -61,30 +61,7 @@ spec:
     - name: pod-delete
       spec:
         components:
-          env:
-            # Target primary pod dynamically
-            - name: TARGETS
-              value: "cluster:default:[cnpg.io/cluster=pg-eu,cnpg.io/instanceRole=primary]:intersection"
-
-            # Chaos duration and interval
-            - name: TOTAL_CHAOS_DURATION
-              value: "600" # 30 minutes of chaos
-
-            - name: CHAOS_INTERVAL
-              value:
-                "180" # Delete primary every 180 seconds
-                # Medium Jepsen load (50 ops/sec, 7 workers)
-                # Label propagation: ~40-70s under medium load, 300s provides good buffer
-                # Expected: 5-6 chaos iterations in 30 minutes
-                # TODO: Once PreTargetSelection probe is implemented, reduce to 60-120s
-
-            - name: FORCE
-              value: "true" # Force delete for faster failover
-
-            - name: RAMP_TIME
-              value: "10"
-
-        probe:
+         probe:
           # ==========================================
           # Start of Test (SOT) Probes - Pre-chaos validation
           # ==========================================
