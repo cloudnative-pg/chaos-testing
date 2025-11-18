@@ -4,7 +4,7 @@ metadata:
   name: pg-eu
   namespace: default
 spec:
-  instances: 3
+  instances: 3 # 1 primary + 2 replicas for high availability
   imageName: ghcr.io/cloudnative-pg/postgresql:16
 
   # Configure primary instance

@@ -1,0 +1,189 @@
+---
+# Jepsen CloudNativePG Consistency Test Job
+#
+# This Job runs the production-proven Jepsen PostgreSQL test suite
+# against a CloudNativePG cluster to verify data consistency.
+#
+# Features:
+# - Uses pre-built ardentperf/jepsenpg image (no custom code needed)
+# - Continuous workload generation (50 ops/sec)
+# - Complete operation history tracking
+# - Automatic consistency verification
+# - Anomaly detection (lost writes, G0, G1c, G2)
+#
+# Prerequisites:
+# - CloudNativePG cluster running (default: pg-eu)
+# - Cluster credentials secret (default: pg-eu-credentials)
+#
+# Usage:
+#   kubectl apply -f workloads/jepsen-cnpg-job.yaml
+#   kubectl logs -f job/jepsen-cnpg-test
+#   ./scripts/get-jepsen-results.sh jepsen-cnpg-test
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: jepsen-cnpg-test
+  namespace: default
+  labels:
+    app: jepsen-test
+    test-type: consistency-verification
+    component: chaos-testing
+spec:
+  backoffLimit: 0 # Don't retry on failure - we want to see the failure
+  ttlSecondsAfterFinished: 3600 # Keep completed job for 1 hour
+  template:
+    metadata:
+      labels:
+        app: jepsen-test
+        test-type: consistency-verification
+    spec:
+      containers:
+        - name: jepsen
+          image: ardentperf/jepsenpg:latest
+          imagePullPolicy: IfNotPresent
+
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              cd /jepsenpg
+
+              # Get PostgreSQL connection details from secret
+              export PGPASSWORD=$(cat /secrets/password)
+              export PGUSER=$(cat /secrets/username)
+              export PGHOST="${CLUSTER_NAME}-rw.${NAMESPACE}.svc.cluster.local"
+              export PGDATABASE="${PGDATABASE}"
+
+              echo "========================================="
+              echo "Jepsen CloudNativePG Consistency Test"
+              echo "========================================="
+              echo "Cluster:     ${CLUSTER_NAME}"
+              echo "Namespace:   ${NAMESPACE}"
+              echo "Database:    ${PGDATABASE}"
+              echo "User:        ${PGUSER}"
+              echo "Host:        ${PGHOST}"
+              echo "Workload:    ${WORKLOAD}"
+              echo "Duration:    ${DURATION}s"
+              echo "Concurrency: ${CONCURRENCY}"
+              echo "Rate:        ${RATE} ops/sec"
+              echo "Isolation:   ${ISOLATION}"
+              echo "========================================="
+              echo ""
+
+              # Test database connectivity first
+              echo "Testing database connectivity..."
+              if command -v psql &> /dev/null; then
+                psql -h ${PGHOST} -U ${PGUSER} -d ${PGDATABASE} -c "SELECT version();" || {
+                  echo "❌ Failed to connect to database"
+                  exit 1
+                }
+                echo "✅ Database connection successful"
+              else
+                echo "⚠️  psql not available, skipping connectivity test"
+              fi
+              echo ""
+
+              # Run Jepsen test
+              echo "Starting Jepsen consistency test..."
+              echo "========================================="
+
+              lein run test \
+                --existing-postgres \
+                --no-ssh \
+                --node ${PGHOST} \
+                --postgres-user ${PGUSER} \
+                --postgres-password ${PGPASSWORD} \
+                --postgres-port 5432 \
+                --workload ${WORKLOAD} \
+                --isolation ${ISOLATION} \
+                --expected-consistency-model ${ISOLATION} \
+                --time-limit ${DURATION} \
+                --rate ${RATE} \
+                --concurrency ${CONCURRENCY} \
+                --max-txn-length 4 \
+                --max-writes-per-key 256 \
+                --key-count 10 \
+                --nemesis none
+
+              EXIT_CODE=$?
+
+              echo ""
+              echo "========================================="
+              echo "Test completed with exit code: ${EXIT_CODE}"
+              echo "========================================="
+              echo ""
+
+              # Display results location
+              echo "Results stored in:"
+              echo "  History:  /jepsenpg/store/latest/history.edn"
+              echo "  Results:  /jepsenpg/store/latest/results.edn"
+              echo "  Timeline: /jepsenpg/store/latest/timeline.html"
+              echo "  Latency:  /jepsenpg/store/latest/latency-raw.png"
+              echo ""
+
+              # Try to display results summary
+              if [ -f /jepsenpg/store/latest/results.edn ]; then
+                echo "========================================="
+                echo "Results Summary:"
+                echo "========================================="
+                cat /jepsenpg/store/latest/results.edn | grep -E ":valid\?|:anomaly-types|:also-not" || echo "(Full results in results.edn)"
+                echo ""
+                
+                if grep -q ":valid? true" /jepsenpg/store/latest/results.edn; then
+                  echo "✅ NO CONSISTENCY VIOLATIONS DETECTED"
+                else
+                  echo "⚠️  CONSISTENCY VIOLATIONS DETECTED - Review results.edn"
+                fi
+              else
+                echo "⚠️  Results file not found at expected location"
+              fi
+
+              echo "========================================="
+              exit ${EXIT_CODE}
+
+          env:
+            # Cluster configuration
+            - name: CLUSTER_NAME
+              value: "pg-eu"
+            - name: NAMESPACE
+              value: "default"
+            - name: PGDATABASE
+              value: "app"
+
+            # Test configuration
+            - name: WORKLOAD
+              value: "append" # Options: append, ledger
+            - name: ISOLATION
+              value: "read-committed" # Options: serializable, repeatable-read, read-committed
+            - name: DURATION
+              value: "120" # 2 minutes for quick test (use 600 for full test)
+            - name: RATE
+              value: "50" # 50 operations per second
+            - name: CONCURRENCY
+              value: "10" # 10 concurrent threads
+
+          volumeMounts:
+            - name: jepsen-history
+              mountPath: /jepsenpg/store
+            - name: pg-credentials
+              mountPath: /secrets
+              readOnly: true
+
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+
+      volumes:
+        - name: jepsen-history
+          emptyDir: {}
+        - name: pg-credentials
+          secret:
+            secretName: pg-eu-credentials
+
+      restartPolicy: Never
