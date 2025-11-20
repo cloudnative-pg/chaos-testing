@@ -295,30 +295,32 @@ log ""
 
 log "Step 2/10: Cleaning previous test data..."
 
-# Find primary pod
-PRIMARY_POD=$(kubectl get pods -n ${NAMESPACE} -l cnpg.io/cluster=${CLUSTER_NAME},role=primary -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+# Prefer CNPG status for authoritative primary identification
+PRIMARY_POD=$(kubectl get cluster ${CLUSTER_NAME} -n ${NAMESPACE} -o jsonpath='{.status.currentPrimary}' 2>/dev/null | tr -d ' ')
 
 if [[ -z "$PRIMARY_POD" ]]; then
-    warn "Could not identify primary pod, trying all pods..."
-    # Try each pod until we find the primary
+    warn "CNPG status did not report a current primary, falling back to label selector..."
+    PRIMARY_POD=$(kubectl get pods -n ${NAMESPACE} -l cnpg.io/cluster=${CLUSTER_NAME},role=primary -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+fi
+
+if [[ -z "$PRIMARY_POD" ]]; then
+    warn "Label selector did not return a primary pod; probing cluster members..."
     for pod in $(kubectl get pods -n ${NAMESPACE} -l cnpg.io/cluster=${CLUSTER_NAME} -o jsonpath='{.items[*].metadata.name}'); do
-        if kubectl exec ${pod} -n ${NAMESPACE} -- psql -U postgres -d ${DB_USER} -c "SELECT 1" &>/dev/null; then
-            if kubectl exec ${pod} -n ${NAMESPACE} -- psql -U postgres -d ${DB_USER} -c "DROP TABLE IF EXISTS txn, txn_append CASCADE;" 2>&1 | grep -q "DROP TABLE"; then
-                PRIMARY_POD=${pod}
-                break
-            fi
+        if kubectl exec ${pod} -n ${NAMESPACE} -- psql -U postgres -d ${DB_USER} -Atq -c "SELECT pg_is_in_recovery();" 2>/dev/null | grep -qx "f"; then
+            PRIMARY_POD=${pod}
+            break
         fi
     done
 fi
 
-if [[ -n "$PRIMARY_POD" ]]; then
-    log "Cleaning tables on primary: ${PRIMARY_POD}"
-    kubectl exec ${PRIMARY_POD} -n ${NAMESPACE} -- psql -U postgres -d ${DB_USER} -c "DROP TABLE IF EXISTS txn, txn_append CASCADE;" 2>&1 | grep -E "DROP TABLE|NOTICE" || true
-    success "Database cleaned"
-else
-    warn "Could not clean database tables (primary pod not accessible)"
-    warn "Test will continue, but may use existing data"
+if [[ -z "$PRIMARY_POD" ]]; then
+    error "Unable to determine CNPG primary pod; aborting cleanup to avoid stale data"
+    exit 2
 fi
+
+log "Cleaning tables on primary: ${PRIMARY_POD}"
+kubectl exec ${PRIMARY_POD} -n ${NAMESPACE} -- psql -U postgres -d ${DB_USER} -c "DROP TABLE IF EXISTS txn, txn_append CASCADE;" 2>&1 | grep -E "DROP TABLE|NOTICE" || true
+success "Database cleaned"
 
 log ""
 
@@ -749,7 +751,7 @@ if [[ ! -f "experiments/cnpg-jepsen-chaos.yaml" ]]; then
 fi
 
 # Patch chaos duration to match test duration
-if [[ "$TEST_DURATION" != "300" ]]; then
+if [[ "$TEST_DURATION" != "600" ]]; then
     log "Adjusting chaos duration to ${TEST_DURATION}s..."
     sed "/TOTAL_CHAOS_DURATION/,/value:/ s/value: \"[0-9]*\"/value: \"${TEST_DURATION}\"/" \
         experiments/cnpg-jepsen-chaos.yaml > "${LOG_DIR}/chaos-${TIMESTAMP}.yaml"
@@ -824,9 +826,6 @@ while true; do
     sleep 5
 done
 
-log ""
-log "⚠️  Elle consistency analysis is running in background (can take 30+ minutes)"
-log "⚠️  We will extract results NOW without waiting for Elle to finish"
 log ""
 
 # Wait a few seconds for files to be written

@@ -69,7 +69,7 @@ spec:
             - name: TOTAL_CHAOS_DURATION
               value: "600" # Run chaos for 10 minutes
             - name: CHAOS_INTERVAL
-              value: "60" # Delete primary every 60s
+              value: "180" # Delete primary every 60s
             - name: PODS_AFFECTED_PERC
               value: "100"
             - name: FORCE
