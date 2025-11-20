@@ -47,4 +47,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: litmus-admin
-    namespace: default
+    namespace: litmus
