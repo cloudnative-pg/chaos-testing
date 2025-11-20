@@ -29,7 +29,6 @@
 #
 #   # Monitor
 #   kubectl get chaosengine cnpg-jepsen-chaos -w
-
 apiVersion: litmuschaos.io/v1alpha1
 kind: ChaosEngine
 metadata:
@@ -45,12 +44,11 @@ metadata:
 spec:
   engineState: "active"
   annotationCheck: "false"
+  auxiliaryAppInfo: ""
 
   # Target the CNPG cluster
   appinfo:
     appns: "default"
-    applabel: "cnpg.io/instanceRole=primary"
-    appkind: "cluster"
 
   chaosServiceAccount: litmus-admin
 
@@ -61,7 +59,25 @@ spec:
     - name: pod-delete
       spec:
         components:
-         probe:
+          env:
+            # Explicitly target CNPG Cluster pods via TARGETS so we can
+            # keep appkind empty (CRD only allows native workload kinds)
+            - name: TARGETS
+              value: "cluster:default:[cnpg.io/instanceRole=primary]"
+            - name: TARGET_PODS
+              value: ""
+            - name: TOTAL_CHAOS_DURATION
+              value: "600" # Run chaos for 10 minutes
+            - name: CHAOS_INTERVAL
+              value: "60" # Delete primary every 60s
+            - name: PODS_AFFECTED_PERC
+              value: "100"
+            - name: FORCE
+              value: "false"
+            - name: RAMP_TIME
+              value: "0"
+        probe:
+          # PROMETHEUS_PROBES_START (requires monitoring stack in README §5)
           # ==========================================
           # Start of Test (SOT) Probes - Pre-chaos validation
           # ==========================================
@@ -85,7 +101,7 @@ spec:
           - name: jepsen-job-running-sot
             type: cmdProbe
             cmdProbe/inputs:
-              command: kubectl get pods -l app=jepsen-test --field-selector=status.phase=Running -o jsonpath='{.items[0].status.phase}'
+              command: kubectl -n default get pods -l app=jepsen-test --field-selector=status.phase=Running -o jsonpath='{.items[0].status.phase}'
               comparator:
                 type: string
                 criteria: "equal"
@@ -101,11 +117,8 @@ spec:
           # ==========================================
           # NOTE: Continuous probes run as non-blocking goroutines
           # They cannot prevent TARGET_SELECTION_ERROR
-          # See: https://github.com/litmuschaos/litmus-go/issues/XXX
 
           # Probe 3: Monitor cluster health during chaos
-          # REMOVED: wait-for-primary-label - doesn't prevent TARGET_SELECTION_ERROR (runs as goroutine)
-          # REMOVED: transaction-rate-continuous - redundant (Jepsen tracks all ops)
           - name: replication-lag-continuous
             type: promProbe
             promProbe/inputs:
@@ -154,7 +167,7 @@ spec:
               interval: "15s"
               retry: 5
               initialDelay: "30s" # Wait for replication to stabilize
-
+          # PROMETHEUS_PROBES_END
 ---
 # Probe Summary:
 # ================
@@ -178,7 +191,7 @@ spec:
 # -------------------------
 # ❌ wait-for-primary-label (Continuous)
 #    - Runs as non-blocking goroutine, can't prevent TARGET_SELECTION_ERROR
-#    - Cannot block target selection (see: chaoslib/litmus/pod-delete/lib/pod-delete.go:73-77)
+#    - Cannot block target selection (see: chaoslib/litmus/pod-delete/lib/pod-delete.go)
 #    - PreTargetSelection probe mode needed (GitHub issue to be filed)
 #
 # ❌ transaction-rate-continuous (Continuous)
@@ -187,9 +200,9 @@ spec:
 #
 # Why Probes Show N/A:
 # ---------------------
-# In the previous test, Continuous/EOT probes showed "N/A" because:
+# In previous tests, Continuous/EOT probes showed "N/A" because:
 # 1. Experiment was ABORTED by cleanup script
-# 2. Chaos failed 20 times with TARGET_SELECTION_ERROR
+# 2. Chaos failed multiple times with TARGET_SELECTION_ERROR
 # 3. Probes never had a chance to execute fully
 # 4. Only SOT probes executed (before chaos started)
 #

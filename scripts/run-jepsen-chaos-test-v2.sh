@@ -77,6 +77,8 @@ readonly JEPSEN_MEMORY_REQUEST="512Mi"
 readonly JEPSEN_MEMORY_LIMIT="1Gi"
 readonly JEPSEN_CPU_REQUEST="500m"
 readonly JEPSEN_CPU_LIMIT="1000m"
+readonly LITMUS_NAMESPACE="${LITMUS_NAMESPACE:-litmus}"
+readonly PROMETHEUS_NAMESPACE="${PROMETHEUS_NAMESPACE:-monitoring}"
 
 # ==========================================
 # Parse and Validate Arguments
@@ -256,9 +258,18 @@ if ! kubectl cluster-info &>/dev/null; then
     exit 2
 fi
 
-# Check Litmus operator
-check_resource "deployment" "chaos-operator-ce" "litmus" \
-    "Litmus chaos operator not found. Install with: kubectl apply -f https://litmuschaos.github.io/litmus/litmus-operator-v1.13.8.yaml" || exit 2
+# Check Litmus operator + control plane
+if ! kubectl get deployment chaos-operator-ce -n "${LITMUS_NAMESPACE}" &>/dev/null \
+    && ! kubectl get deployment litmus -n "${LITMUS_NAMESPACE}" &>/dev/null; then
+    error "Litmus chaos operator not found in namespace '${LITMUS_NAMESPACE}'. Install or repair via Helm (see README section 3)."
+    exit 2
+fi
+
+if ! kubectl get deployment chaos-litmus-portal-server -n "${LITMUS_NAMESPACE}" &>/dev/null \
+    && ! kubectl get deployment chaos-litmus-server -n "${LITMUS_NAMESPACE}" &>/dev/null; then
+    error "Litmus control plane deployment not found in namespace '${LITMUS_NAMESPACE}'. Install or repair via Helm (see README section 3)."
+    exit 2
+fi
 
 # Check CNPG cluster
 check_resource "cluster" "${CLUSTER_NAME}" "${NAMESPACE}" \
@@ -270,9 +281,9 @@ check_resource "secret" "${SECRET_NAME}" "${NAMESPACE}" \
     "Credentials secret '${SECRET_NAME}' not found" || exit 2
 
 # Check Prometheus (required for probes) - non-fatal
-if ! check_resource "service" "prometheus-kube-prometheus-prometheus" "monitoring"; then
-    warn "Prometheus not found in 'monitoring' namespace. Probes may fail."
-    warn "Install with: helm install prometheus prometheus-community/kube-prometheus-stack -n monitoring"
+if ! check_resource "service" "prometheus-kube-prometheus-prometheus" "${PROMETHEUS_NAMESPACE}"; then
+    warn "Prometheus not found in namespace '${PROMETHEUS_NAMESPACE}'. Probes may fail."
+    warn "Install with: helm install prometheus prometheus-community/kube-prometheus-stack -n ${PROMETHEUS_NAMESPACE}"
 fi
 
 success "Pre-flight checks passed"
@@ -334,20 +345,36 @@ spec:
       storage: 2Gi
 EOF
     
-    # Wait for PVC to be bound
-    log "Waiting up to ${PVC_BIND_TIMEOUT}s for PVC to bind..."
-    MAX_ITERATIONS=$((PVC_BIND_TIMEOUT / PVC_BIND_CHECK_INTERVAL))
     PVC_BOUND=false
-    
-    for i in $(seq 1 $MAX_ITERATIONS); do
-        PVC_STATUS=$(kubectl get pvc jepsen-results -n ${NAMESPACE} -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
-        if [[ "$PVC_STATUS" == "Bound" ]]; then
-            success "PersistentVolumeClaim bound after $((i * PVC_BIND_CHECK_INTERVAL))s"
-            PVC_BOUND=true
-            break
-        fi
-        sleep $PVC_BIND_CHECK_INTERVAL
-    done
+
+    PVC_SC=$(kubectl get pvc jepsen-results -n ${NAMESPACE} -o jsonpath='{.spec.storageClassName}' 2>/dev/null | tr -d ' ')
+    if [[ -z "$PVC_SC" ]]; then
+        PVC_SC=$(kubectl get sc -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}' 2>/dev/null | head -n1)
+    fi
+
+    BINDING_MODE=""
+    if [[ -n "$PVC_SC" ]]; then
+        BINDING_MODE=$(kubectl get sc "$PVC_SC" -o jsonpath='{.volumeBindingMode}' 2>/dev/null || echo "")
+    fi
+
+    if [[ "$BINDING_MODE" == "WaitForFirstConsumer" ]]; then
+        log "StorageClass '${PVC_SC}' uses WaitForFirstConsumer; PVC will stay Pending until the Jepsen pod is scheduled. Continuing without blocking."
+        PVC_BOUND=true
+    else
+        # Wait for PVC to be bound
+        log "Waiting up to ${PVC_BIND_TIMEOUT}s for PVC to bind..."
+        MAX_ITERATIONS=$((PVC_BIND_TIMEOUT / PVC_BIND_CHECK_INTERVAL))
+        
+        for i in $(seq 1 $MAX_ITERATIONS); do
+            PVC_STATUS=$(kubectl get pvc jepsen-results -n ${NAMESPACE} -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+            if [[ "$PVC_STATUS" == "Bound" ]]; then
+                success "PersistentVolumeClaim bound after $((i * PVC_BIND_CHECK_INTERVAL))s"
+                PVC_BOUND=true
+                break
+            fi
+            sleep $PVC_BIND_CHECK_INTERVAL
+        done
+    fi
     
     if [[ "$PVC_BOUND" == "false" ]]; then
         error "PVC did not bind within ${PVC_BIND_TIMEOUT}s"
