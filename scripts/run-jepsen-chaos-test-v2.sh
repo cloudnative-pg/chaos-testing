@@ -210,9 +210,9 @@ cleanup() {
     log "Starting cleanup..."
     
     # Delete chaos engine
-    if kubectl get chaosengine ${CHAOS_ENGINE_NAME} -n ${NAMESPACE} &>/dev/null; then
+    if kubectl get chaosengine ${CHAOS_ENGINE_NAME} -n ${LITMUS_NAMESPACE} &>/dev/null; then
         log "Deleting chaos engine: ${CHAOS_ENGINE_NAME}"
-        kubectl delete chaosengine ${CHAOS_ENGINE_NAME} -n ${NAMESPACE} --wait=false || true
+        kubectl delete chaosengine ${CHAOS_ENGINE_NAME} -n ${LITMUS_NAMESPACE} --wait=false || true
     fi
     
     # Delete Jepsen Job
@@ -733,11 +733,11 @@ log ""
 log "Step 7/10: Applying Litmus chaos experiment..."
 
 # Reset previous ChaosResult so each run starts with fresh counters
-if kubectl get chaosresult ${CHAOS_ENGINE_NAME}-pod-delete -n ${NAMESPACE} >/dev/null 2>&1; then
+if kubectl get chaosresult ${CHAOS_ENGINE_NAME}-pod-delete -n ${LITMUS_NAMESPACE} >/dev/null 2>&1; then
     log "Deleting previous chaos result ${CHAOS_ENGINE_NAME}-pod-delete to reset verdict history..."
-    kubectl delete chaosresult ${CHAOS_ENGINE_NAME}-pod-delete -n ${NAMESPACE} >/dev/null 2>&1 || true
+    kubectl delete chaosresult ${CHAOS_ENGINE_NAME}-pod-delete -n ${LITMUS_NAMESPACE} >/dev/null 2>&1 || true
     for i in {1..12}; do
-        if ! kubectl get chaosresult ${CHAOS_ENGINE_NAME}-pod-delete -n ${NAMESPACE} >/dev/null 2>&1; then
+        if ! kubectl get chaosresult ${CHAOS_ENGINE_NAME}-pod-delete -n ${LITMUS_NAMESPACE} >/dev/null 2>&1; then
             break
         fi
         sleep 2
@@ -1064,50 +1064,48 @@ EOF
     mkdir -p "${RESULT_DIR}/chaos-results"
     
     # Extract ChaosEngine status
-    log "Extracting ChaosEngine status..."
-    if kubectl get chaosengine ${CHAOS_ENGINE_NAME} -n ${NAMESPACE} &>/dev/null; then
-        kubectl get chaosengine ${CHAOS_ENGINE_NAME} -n ${NAMESPACE} -o yaml > "${RESULT_DIR}/chaos-results/chaosengine.yaml"
+    # Export chaos results if available
+    if kubectl get chaosengine ${CHAOS_ENGINE_NAME} -n ${LITMUS_NAMESPACE} &>/dev/null; then
+        kubectl get chaosengine ${CHAOS_ENGINE_NAME} -n ${LITMUS_NAMESPACE} -o yaml > "${RESULT_DIR}/chaos-results/chaosengine.yaml"
         
-        # Get engine UID for finding results
-        ENGINE_UID=$(kubectl get chaosengine ${CHAOS_ENGINE_NAME} -n ${NAMESPACE} -o jsonpath='{.status.uid}' 2>/dev/null)
+        # Get ChaosResult using the engine UID
+        ENGINE_UID=$(kubectl get chaosengine ${CHAOS_ENGINE_NAME} -n ${LITMUS_NAMESPACE} -o jsonpath='{.status.uid}' 2>/dev/null)
         
-        # Extract ChaosResult
-        if [[ -n "$ENGINE_UID" ]]; then
-            log "Extracting ChaosResult (UID: ${ENGINE_UID})..."
-            CHAOS_RESULT=$(kubectl get chaosresult -n ${NAMESPACE} -l chaosUID=${ENGINE_UID} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        if [[ -n "${ENGINE_UID}" ]]; then
+            # Find ChaosResult by chaosUID label
+            CHAOS_RESULT=$(kubectl get chaosresult -n ${LITMUS_NAMESPACE} -l chaosUID=${ENGINE_UID} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
             
-            if [[ -n "$CHAOS_RESULT" ]]; then
-                kubectl get chaosresult ${CHAOS_RESULT} -n ${NAMESPACE} -o yaml > "${RESULT_DIR}/chaos-results/chaosresult.yaml"
+            if [[ -n "${CHAOS_RESULT}" ]]; then
+                kubectl get chaosresult ${CHAOS_RESULT} -n ${LITMUS_NAMESPACE} -o yaml > "${RESULT_DIR}/chaos-results/chaosresult.yaml"
                 
-                # Extract summary
-                VERDICT=$(kubectl get chaosresult ${CHAOS_RESULT} -n ${NAMESPACE} -o jsonpath='{.status.experimentStatus.verdict}' 2>/dev/null || echo "Unknown")
-                PROBE_SUCCESS=$(kubectl get chaosresult ${CHAOS_RESULT} -n ${NAMESPACE} -o jsonpath='{.status.experimentStatus.probeSuccessPercentage}' 2>/dev/null || echo "0")
-                FAILED_STEP=$(kubectl get chaosresult ${CHAOS_RESULT} -n ${NAMESPACE} -o jsonpath='{.status.experimentStatus.failStep}' 2>/dev/null || echo "None")
+                # Extract key metrics
+                VERDICT=$(kubectl get chaosresult ${CHAOS_RESULT} -n ${LITMUS_NAMESPACE} -o jsonpath='{.status.experimentStatus.verdict}' 2>/dev/null || echo "Unknown")
+                PROBE_SUCCESS=$(kubectl get chaosresult ${CHAOS_RESULT} -n ${LITMUS_NAMESPACE} -o jsonpath='{.status.experimentStatus.probeSuccessPercentage}' 2>/dev/null || echo "0")
+                FAILED_STEP=$(kubectl get chaosresult ${CHAOS_RESULT} -n ${LITMUS_NAMESPACE} -o jsonpath='{.status.experimentStatus.failStep}' 2>/dev/null || echo "None")
                 
-                # Save human-readable summary
-                cat > "${RESULT_DIR}/chaos-results/SUMMARY.txt" <<EOF
-Chaos Experiment Results
-========================
-Experiment: ${CHAOS_ENGINE_NAME}
-Result: ${CHAOS_RESULT}
-Timestamp: ${TIMESTAMP}
+                cat >> "${RESULT_DIR}/STATISTICS.txt" <<EOF
 
+Chaos Experiment Results:
+==========================
 Verdict: ${VERDICT}
 Probe Success Rate: ${PROBE_SUCCESS}%
 Failed Step: ${FAILED_STEP}
 
-Detailed Results:
------------------
-See chaosresult.yaml for full probe results and timings.
+Note: If verdict is 'Fail' and Jepsen reports valid, the failure may be due to 
+Prometheus probe timing issues during pod deletion, not actual data inconsistency.
+Jepsen's mathematical proof (Elle) is the authoritative consistency check.
 
+See chaosresult.yaml for full probe results and timings.
 EOF
+                
+                success "Chaos results exported to ${RESULT_DIR}/chaos-results/"
                 
                 # Extract probe results (if jq is available)
                 log "Extracting probe results..."
                 if command -v jq &>/dev/null; then
-                    kubectl get chaosresult ${CHAOS_RESULT} -n ${NAMESPACE} -o jsonpath='{.status.probeStatuses}' 2>/dev/null | jq '.' > "${RESULT_DIR}/chaos-results/probe-results.json" 2>/dev/null || true
+                    kubectl get chaosresult ${CHAOS_RESULT} -n ${LITMUS_NAMESPACE} -o jsonpath='{.status.probeStatuses}' 2>/dev/null | jq '.' > "${RESULT_DIR}/chaos-results/probe-results.json" 2>/dev/null || true
                 else
-                    kubectl get chaosresult ${CHAOS_RESULT} -n ${NAMESPACE} -o jsonpath='{.status.probeStatuses}' 2>/dev/null > "${RESULT_DIR}/chaos-results/probe-results.json" || true
+                    kubectl get chaosresult ${CHAOS_RESULT} -n ${LITMUS_NAMESPACE} -o jsonpath='{.status.probeStatuses}' 2>/dev/null > "${RESULT_DIR}/chaos-results/probe-results.json" || true
                 fi
                 
                 # Display result
