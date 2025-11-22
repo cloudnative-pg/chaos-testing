@@ -27,21 +27,22 @@ Production-ready Jepsen and Litmus chaos automation for CloudNativePG (CNPG) clu
 
 - Linux/macOS shell with `bash`, `git`, `curl`, `jq`, and internet access.
 - Container + Kubernetes tooling: Docker **or** Podman, the [Kind CLI](https://kind.sigs.k8s.io/) tool, `kubectl`, `helm`, the [`kubectl cnpg` plugin](https://cloudnative-pg.io/documentation/current/kubectl-plugin/) binary, and the [`cmctl` utility](https://cert-manager.io/docs/reference/cmctl/) for cert-manager.
-- Install the CNPG plugin if it is not already on your `PATH`:
+- Install the CNPG plugin using kubectl krew (recommended):
   ```bash
-  curl -sSL https://get.cnpg.io/install | sudo bash
+  kubectl krew install cnpg
   kubectl cnpg version
   ```
-  > If the installer endpoint is unreachable, download the **latest** release directly (replace `v1.27.1` with the newest tag at <https://github.com/cloudnative-pg/cloudnative-pg/releases>):
-  >
-  > ```bash
-  > VERSION="v1.27.1"
-  > curl -L "https://github.com/cloudnative-pg/cloudnative-pg/releases/download/${VERSION}/kubectl-cnpg_${VERSION}_linux_amd64.tar.gz" -o /tmp/kubectl-cnpg.tar.gz
-  > tar -xzf /tmp/kubectl-cnpg.tar.gz -C /tmp
-  > sudo install -m 0755 /tmp/kubectl-cnpg /usr/local/bin/kubectl-cnpg
-  > kubectl cnpg version
-  > ```
+  > **Alternative installation methods:**
+  > - For Debian/Ubuntu: Download `.deb` from [releases page](https://github.com/cloudnative-pg/cloudnative-pg/releases)
+  > - For RHEL/Fedora: Download `.rpm` from [releases page](https://github.com/cloudnative-pg/cloudnative-pg/releases)
+  > - See [official installation docs](https://cloudnative-pg.io/documentation/current/kubectl-plugin) for all methods
 - Optional but recommended: `kubectx`, `stern`, `kubectl-view-secret` (see the [CNPG Playground README](https://github.com/cloudnative-pg/cnpg-playground#prerequisites) for a complete list).
+- **Disk Space:** Minimum **30GB** free disk space recommended:
+  - Kind cluster nodes: ~5GB
+  - Container images: ~5GB (first run with image pull)
+  - Prometheus/MongoDB storage: ~10GB
+  - Jepsen results + logs: ~5GB
+  - Buffer for growth: ~5GB
 - Sufficient local resources for a multi-node Kind cluster (≈8 CPUs / 12 GB RAM) and permission to run port-forwards.
 
 Once the tooling is present, everything else is managed via repository scripts and Helm charts.
@@ -73,16 +74,12 @@ With the Kind cluster running, install/update the operator by following the offi
 
 ```bash
 # Re-export the playground kubeconfig if you opened a new shell
-export KUBECONFIG=/path/to/cnpg-playground/k8s/kube-config.yaml
+export KUBECONFIG=$PWD/k8s/kube-config.yaml
 kubectl config use-context kind-k8s-eu
 
 # Apply the 1.27.1 operator manifest exactly as documented
 kubectl apply --server-side -f \
   https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.27/releases/cnpg-1.27.1.yaml
-
-# Alternatively, generate a custom manifest via the kubectl cnpg plugin
-kubectl cnpg install generate --control-plane \
-  | kubectl apply --context kind-k8s-eu -f - --server-side
 
 # Verify the controller rollout per the installation guide
 kubectl --context kind-k8s-eu rollout status deployment \
@@ -90,6 +87,12 @@ kubectl --context kind-k8s-eu rollout status deployment \
 
 # The cnpg-playground setup already creates the pg-eu sample cluster that chaos targets.
 ```
+
+> **Note:** To generate a custom manifest with non-default settings (e.g., specific watch namespaces), use:
+> ```bash
+> kubectl cnpg install generate --watch-namespace "specific-namespace" > custom-cnpg.yaml
+> kubectl apply --server-side -f custom-cnpg.yaml
+> ```
 
 ### 3. Install Litmus Chaos
 
@@ -146,7 +149,7 @@ kubectl -n litmus get chaosexperiments
 # Should show: pod-delete
 
 # Also install in default namespace if running experiments there
-kubectl apply -n default -f chaosexperiments/pod-delete-cnpg.yaml
+kubectl apply --namespace=default -f chaosexperiments/pod-delete-cnpg.yaml
 ```
 
 ### 3.6. Configure RBAC for Chaos Experiments
@@ -185,7 +188,8 @@ watch -n2 'kubectl -n litmus get pods | grep cnpg-jepsen-chaos-noprobes-runner'
 # Monitor CNPG pod deletions in real-time
 bash scripts/monitor-cnpg-pods.sh pg-eu default litmus kind-k8s-eu
 
-# Check experiment logs to see pod deletions (ensure a pod exists first)
+# Wait for chaos runner pod to be created, then check logs
+kubectl -n litmus wait --for=condition=ready pod -l chaos-runner-name=cnpg-jepsen-chaos-noprobes --timeout=60s && \
 runner_pod=$(kubectl -n litmus get pods -l chaos-runner-name=cnpg-jepsen-chaos-noprobes -o jsonpath='{.items[0].metadata.name}') && \
 kubectl -n litmus logs -f "$runner_pod"
 
@@ -220,7 +224,8 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
 Expose the CNPG metrics port (9187) through a dedicated Service + ServiceMonitor bundle, then verify Prometheus scrapes it. Manual management keeps you aligned with the operator deprecation of `spec.monitoring.enablePodMonitor` and dodges the PodMonitor regression in kube-prometheus-stack v79 where CNPG pods only advertise the `postgresql` and `status` ports:
 
 ```bash
-kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+# Create monitoring namespace if it doesn't exist
+kubectl create namespace monitoring 2>/dev/null || true
 # Clean out the legacy PodMonitor if you created one earlier
 kubectl -n monitoring delete podmonitor pg-eu --ignore-not-found
 # Apply the Service + ServiceMonitor bundle (same file path as before)
@@ -258,7 +263,7 @@ Import the official dashboard JSON from <https://github.com/cloudnative-pg/grafa
 ./scripts/run-jepsen-chaos-test-v2.sh pg-eu app 600
 ```
 
-This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (primary pod delete), monitors logs, collects Elle results, and cleans up transient resources.
+This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (primary pod delete), monitors logs, collects Elle results, and cleans up transient resources **automatically** (no manual exit needed - the script handles everything).
 
 **Prerequisites before running the script:**
 
@@ -266,6 +271,11 @@ This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (p
 - Chaos workflow validated (run `experiments/cnpg-jepsen-chaos.yaml` once manually if you need to confirm Litmus + CNPG wiring).
 - Docker registry access to pull `ardentperf/jepsenpg` image (or pre-pulled into cluster).
 - `kubectl` context pointing to the playground cluster with sufficient resources.
+- **Increase max open files limit** if needed (required for Jepsen on some systems):
+  ```bash
+  ulimit -n 65536
+  ```
+  > This may need to be configured in your container runtime or Kind cluster configuration if running in a containerized environment.
 
 **Script knobs:**
 
