@@ -53,24 +53,37 @@ Once the tooling is present, everything else is managed via repository scripts a
 
 > Follow these sections in order; each references the authoritative upstream documentation to keep this README concise.
 
+### 0. Clone the Chaos Testing Repository
+
+**First, clone this repository to access the chaos experiments and scripts:**
+
+```bash
+git clone https://github.com/cloudnative-pg/chaos-testing.git
+cd chaos-testing
+```
+
+All subsequent commands reference files in this repository (experiments, scripts, monitoring configs). Keep this terminal window open.
+
 ### 1. Bootstrap the CNPG Playground
 
 The upstream documentation provides detailed instructions for prerequisites and networking. Follow the setup instructions here: <https://github.com/cloudnative-pg/cnpg-playground#usage>.
 
-Example commands:
+**Open a new terminal** and run:
 
 ```bash
 git clone https://github.com/cloudnative-pg/cnpg-playground.git
 cd cnpg-playground
-./scripts/setup.sh eu         # creates kind-k8s-eu plus MinIO
+./scripts/setup.sh eu         # creates kind-k8s-eu cluster
 ./scripts/info.sh             # displays contexts and access information
 export KUBECONFIG=$PWD/k8s/kube-config.yaml
 kubectl config use-context kind-k8s-eu
 ```
 
-### 2. Install CloudNativePG and the sample cluster
+### 2. Install CloudNativePG and Create the PostgreSQL Cluster
 
 With the Kind cluster running, install/update the operator by following the official **CloudNativePG v1.27 Installation & Upgrades** guide (<https://cloudnative-pg.io/documentation/1.27/installation_upgrade/>). The snippets below mirror the documented steps:
+
+**In the cnpg-playground terminal:**
 
 ```bash
 # Re-export the playground kubeconfig if you opened a new shell
@@ -84,8 +97,17 @@ kubectl apply --server-side -f \
 # Verify the controller rollout per the installation guide
 kubectl --context kind-k8s-eu rollout status deployment \
   -n cnpg-system cnpg-controller-manager
+```
 
-# The cnpg-playground setup already creates the pg-eu sample cluster that chaos targets.
+**Switch back to the chaos-testing terminal:**
+
+```bash
+# Create the pg-eu PostgreSQL cluster for chaos testing
+kubectl apply -f clusters/pg-eu-cluster.yaml
+
+# Verify cluster is ready (this will watch until healthy)
+kubectl get cluster pg-eu -w  # Wait until status shows "Cluster in healthy state"
+# Press Ctrl+C when you see: pg-eu   3       3   ready   XX m
 ```
 
 > **Note:** To generate a custom manifest with non-default settings (e.g., specific watch namespaces), use:
@@ -183,6 +205,7 @@ Before setting up the full monitoring stack, you can verify chaos mechanics work
 kubectl apply -f experiments/cnpg-jepsen-chaos-noprobes.yaml
 
 # Watch the chaos runner pod start (refreshes every 2s)
+# Press Ctrl+C once you see the runner pod appear
 watch -n2 'kubectl -n litmus get pods | grep cnpg-jepsen-chaos-noprobes-runner'
 
 # Monitor CNPG pod deletions in real-time
