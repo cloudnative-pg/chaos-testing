@@ -363,25 +363,6 @@ bash scripts/monitor-cnpg-pods.sh pg-eu default litmus kind-k8s-eu
 - Recent Kubernetes events (pod deletions, promotions, etc.)
 - Updates every 2 seconds
 
-### kubectl cnpg plugin commands
-
-```bash
-# Check cluster status
-kubectl cnpg status pg-eu -n default
-
-# View cluster details
-kubectl cnpg cluster pg-eu -n default
-
-# Check backups (if configured)
-kubectl cnpg backup list pg-eu -n default
-
-# Promote a specific replica
-kubectl cnpg promote pg-eu-2 -n default
-
-# Restart a cluster (rolling restart)
-kubectl cnpg restart pg-eu -n default
-```
-
 ## 📚 Additional Resources
 
 - **CNPG Documentation:** <https://cloudnative-pg.io/documentation/>
