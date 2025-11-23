@@ -10,6 +10,7 @@ Production-ready Jepsen and Litmus chaos automation for CloudNativePG (CNPG) clu
 
 **Want to run chaos testing immediately?** Follow these streamlined steps:
 
+0. **Clone this repo** → Get the chaos experiments and scripts (section 0)
 1. **Setup cluster** → Bootstrap CNPG Playground (section 1)
 2. **Install CNPG** → Deploy operator + sample cluster (section 2)
 3. **Install Litmus** → Install operator, experiments, and RBAC (sections 3, 3.5, 3.6)
@@ -18,8 +19,6 @@ Production-ready Jepsen and Litmus chaos automation for CloudNativePG (CNPG) clu
 6. **Run Jepsen** → Full consistency testing layered on chaos (section 6)
 
 **First time users:** Use section 4 as a smoke test without Prometheus, then return to section 5 to install monitoring before running the Jepsen workflow in section 6.
-
-**Troubleshooting?** Jump to the troubleshooting section for common issues and solutions.
 
 ---
 
@@ -110,12 +109,6 @@ kubectl get cluster pg-eu -w  # Wait until status shows "Cluster in healthy stat
 # Press Ctrl+C when you see: pg-eu   3       3   ready   XX m
 ```
 
-> **Note:** To generate a custom manifest with non-default settings (e.g., specific watch namespaces), use:
-> ```bash
-> kubectl cnpg install generate --watch-namespace "specific-namespace" > custom-cnpg.yaml
-> kubectl apply --server-side -f custom-cnpg.yaml
-> ```
-
 ### 3. Install Litmus Chaos
 
 Litmus 3.x separates the operator (via `litmus-core`) from the ChaosCenter UI (via `litmus` chart). Install both, then add the experiment definitions and RBAC:
@@ -136,23 +129,6 @@ kubectl get crd chaosengines.litmuschaos.io chaosexperiments.litmuschaos.io chao
 # Verify operator is running
 kubectl -n litmus get deploy litmus
 kubectl -n litmus wait --for=condition=Available deployment/litmus --timeout=5m
-
-# Install litmus chart (ChaosCenter UI - optional)
-helm upgrade --install chaos litmuschaos/litmus \
-  --namespace litmus \
-  --set portal.frontend.service.type=NodePort \
-  --wait --timeout 10m
-
-# Wait for all pods to be ready
-kubectl -n litmus wait --for=condition=Ready pods --all --timeout=10m
-```
-
-**Verify the installation:**
-
-```bash
-# Should show: litmus, chaos-litmus-auth-server, chaos-litmus-frontend,
-# chaos-litmus-server, chaos-mongodb (3 replicas + arbiter)
-kubectl -n litmus get pods
 ```
 
 ### 3.5. Install ChaosExperiment Definitions
