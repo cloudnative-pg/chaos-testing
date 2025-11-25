@@ -28,7 +28,9 @@ Production-ready Jepsen and Litmus chaos automation for CloudNativePG (CNPG) clu
 - Container + Kubernetes tooling: Docker **or** Podman, the [Kind CLI](https://kind.sigs.k8s.io/) tool, `kubectl`, `helm`, the [`kubectl cnpg` plugin](https://cloudnative-pg.io/documentation/current/kubectl-plugin/) binary, and the [`cmctl` utility](https://cert-manager.io/docs/reference/cmctl/) for cert-manager.
 - Install the CNPG plugin using kubectl krew (recommended):
   ```bash
-  kubectl krew install cnpg
+  # Install or update to the latest version
+  kubectl krew update
+  kubectl krew install cnpg || kubectl krew upgrade cnpg
   kubectl cnpg version
   ```
   > **Alternative installation methods:**
