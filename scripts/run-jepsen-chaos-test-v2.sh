@@ -276,9 +276,9 @@ check_resource "cluster" "${CLUSTER_NAME}" "${NAMESPACE}" \
     "CNPG cluster '${CLUSTER_NAME}' not found in namespace '${NAMESPACE}'" || exit 2
 
 # Check credentials secret
-SECRET_NAME="${CLUSTER_NAME}-credentials"
+SECRET_NAME="${CLUSTER_NAME}-app"
 check_resource "secret" "${SECRET_NAME}" "${NAMESPACE}" \
-    "Credentials secret '${SECRET_NAME}' not found" || exit 2
+    "Credentials secret '${SECRET_NAME}' not found. CNPG should auto-generate this during cluster bootstrap." || exit 2
 
 # Check Prometheus (required for probes) - non-fatal
 if ! check_resource "service" "prometheus-kube-prometheus-prometheus" "${PROMETHEUS_NAMESPACE}"; then
@@ -1050,7 +1050,53 @@ EOF
         grep -F ":info" "${RESULT_DIR}/history.txt" >> "${RESULT_DIR}/STATISTICS.txt" || true
     fi
     
-    success "Statistics saved to: ${RESULT_DIR}/STATISTICS.txt"
+      success "Statistics saved to: ${RESULT_DIR}/STATISTICS.txt"
+    
+    log ""
+    
+    # ==========================================
+    # Step 9.5/10: Wait for EOT Probes
+    # ==========================================
+    
+    log "Step 9.5/10: Waiting for End-of-Test (EOT) probes to complete..."
+    
+    EOT_WAIT_TIME=110  # 110 seconds to be safe
+    
+    log "Chaos duration was ${TEST_DURATION}s"
+    log "Allowing ${EOT_WAIT_TIME}s for EOT probes (initialDelay + retries)"
+    log "This prevents 'N/A' probe verdicts by not deleting chaos engine too early"
+    
+    # Show countdown
+    for ((i=EOT_WAIT_TIME; i>0; i-=10)); do
+        if [ $i -le $EOT_WAIT_TIME ] && [ $((i % 30)) -eq 0 ]; then
+            log "  Waiting for EOT probes... ${i}s remaining"
+        fi
+        sleep 10
+    done
+    
+    # Check probe statuses
+    if kubectl get chaosresult ${CHAOS_ENGINE_NAME}-pod-delete -n ${LITMUS_NAMESPACE} &>/dev/null; then
+        PROBE_STATUS=$(kubectl -n ${LITMUS_NAMESPACE} get chaosresult ${CHAOS_ENGINE_NAME}-pod-delete \
+            -o jsonpath='{.status.probeStatuses}' 2>/dev/null || echo "[]")
+        
+        # Count how many EOT probes executed
+        EOT_COUNT=$(echo "$PROBE_STATUS" | jq '[.[] | select(.mode == "EOT")] | length' 2>/dev/null || echo "0")
+        EOT_PASSED=$(echo "$PROBE_STATUS" | jq '[.[] | select(.mode == "EOT" and .status.verdict == "Passed")] | length' 2>/dev/null || echo "0")
+        
+        if [ "$EOT_COUNT" -gt 0 ]; then
+            success "EOT probes executed: ${EOT_PASSED}/${EOT_COUNT} passed"
+        else
+            warn "No EOT probes found (may still be executing)"
+        fi
+        
+        # Show probe summary
+        TOTAL_PROBES=$(echo "$PROBE_STATUS" | jq '. | length' 2>/dev/null || echo "0")
+        PASSED_PROBES=$(echo "$PROBE_STATUS" | jq '[.[] | select(.status.verdict == "Passed")] | length' 2>/dev/null || echo "0")
+        
+        log "Overall probe status: ${PASSED_PROBES}/${TOTAL_PROBES} probes passed"
+    else
+        warn "ChaosResult not found - probes may not have executed"
+    fi
     
     log ""
     
