@@ -80,7 +80,7 @@ kubectl config use-context kind-k8s-eu
 
 ### 2. Install CloudNativePG and Create the PostgreSQL Cluster
 
-With the Kind cluster running, install/update the operator by following the official **CloudNativePG v1.27 Installation & Upgrades** guide (<https://cloudnative-pg.io/documentation/1.27/installation_upgrade/>). The snippets below mirror the documented steps:
+With the Kind cluster running, install the operator using the **kubectl cnpg plugin** as recommended in the [CloudNativePG Installation & Upgrades guide](https://cloudnative-pg.io/documentation/current/installation_upgrade/). This approach ensures you get the latest stable operator version:
 
 **In the cnpg-playground terminal:**
 
@@ -89,11 +89,11 @@ With the Kind cluster running, install/update the operator by following the offi
 export KUBECONFIG=$PWD/k8s/kube-config.yaml
 kubectl config use-context kind-k8s-eu
 
-# Apply the 1.27.1 operator manifest exactly as documented
-kubectl apply --server-side -f \
-  https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.27/releases/cnpg-1.27.1.yaml
+# Install the latest operator version using the kubectl cnpg plugin
+kubectl cnpg install generate --control-plane | \
+  kubectl --context kind-k8s-eu apply -f - --server-side
 
-# Verify the controller rollout per the installation guide
+# Verify the controller rollout
 kubectl --context kind-k8s-eu rollout status deployment \
   -n cnpg-system cnpg-controller-manager
 ```
