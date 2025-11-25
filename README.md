@@ -138,18 +138,12 @@ kubectl -n litmus wait --for=condition=Available deployment/litmus --timeout=5m
 The ChaosEngine requires ChaosExperiment resources to exist before it can run. Install the `pod-delete` experiment:
 
 ```bash
-# Install from Chaos Hub (recommended - always up to date)
-kubectl apply -n litmus -f https://hub.litmuschaos.io/api/chaos/master?file=faults/kubernetes/pod-delete/fault.yaml
-
-# OR install from local file (if you need customization)
-kubectl apply -n litmus -f chaosexperiments/pod-delete-cnpg.yaml
+# Install from Chaos Hub (has namespace: default hardcoded, so override it)
+kubectl apply --namespace=litmus -f https://hub.litmuschaos.io/api/chaos/master?file=faults/kubernetes/pod-delete/fault.yaml
 
 # Verify experiment is installed
 kubectl -n litmus get chaosexperiments
 # Should show: pod-delete
-
-# Also install in default namespace if running experiments there
-kubectl apply --namespace=default -f chaosexperiments/pod-delete-cnpg.yaml
 ```
 
 ### 3.6. Configure RBAC for Chaos Experiments
