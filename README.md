@@ -95,7 +95,8 @@ kubectl config use-context kind-k8s-eu
 kubectl cnpg install generate --control-plane | \
   kubectl --context kind-k8s-eu apply -f - --server-side
 
-# Verify the controller rollout kubectl --context kind-k8s-eu rollout status deployment \
+# Verify the controller rollout
+kubectl --context kind-k8s-eu rollout status deployment \
   -n cnpg-system cnpg-controller-manager
 ```
 
