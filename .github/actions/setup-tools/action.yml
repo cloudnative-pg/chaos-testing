@@ -1,5 +1,5 @@
 name: 'Setup Chaos Testing Tools'
-description: 'Install kubectl, Kind, Helm, kubectl-cnpg plugin, and other required tools (always latest versions)'
+description: 'Upgrade pre-installed tools and install kubectl-cnpg plugin (always latest versions)'
 branding:
   icon: 'tool'
   color: 'purple'
@@ -7,77 +7,125 @@ branding:
 runs:
   using: 'composite'
   steps:
-    - name: Install kubectl (latest stable)
+    - name: Upgrade kubectl to latest (if needed)
       shell: bash
       run: |
-        echo "Installing latest stable kubectl..."
+        if command -v kubectl &> /dev/null; then
+          CURRENT=$(kubectl version --client --short 2>/dev/null | grep -oP 'v\d+\.\d+\.\d+' || echo "unknown")
+          echo "Current kubectl: $CURRENT"
+          echo "Upgrading to latest stable..."
+        else
+          echo "kubectl not found, installing latest stable..."
+        fi
+        
         curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
         chmod +x kubectl
-        sudo mv kubectl /usr/local/bin/
-        kubectl version --client
+        sudo mv kubectl /usr/local/bin/kubectl
+        
+        NEW_VERSION=$(kubectl version --client --short 2>/dev/null || kubectl version --client)
+        echo "✅ kubectl: $NEW_VERSION"
     
-    - name: Install Kind (latest)
+    - name: Upgrade Kind to latest (if needed)
       shell: bash
       run: |
-        echo "Installing latest Kind..."
-        # Get latest release version
+        if command -v kind &> /dev/null; then
+          CURRENT=$(kind version 2>/dev/null)
+          echo "Current Kind: $CURRENT"
+          echo "Upgrading to latest..."
+        else
+          echo "Kind not found, installing latest..."
+        fi
+        
+        # Get latest release version from GitHub API
         KIND_VERSION=$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         echo "Latest Kind version: ${KIND_VERSION}"
         curl -Lo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
         chmod +x ./kind
         sudo mv ./kind /usr/local/bin/kind
-        kind version
+        
+        echo "✅ Kind: $(kind version)"
     
-    - name: Install Helm (latest)
+    - name: Upgrade Helm to latest (if needed)
       shell: bash
       run: |
-        echo "Installing latest Helm..."
+        if command -v helm &> /dev/null; then
+          CURRENT=$(helm version --short 2>/dev/null)
+          echo "Current Helm: $CURRENT"
+          echo "Upgrading to latest..."
+        else
+          echo "Helm not found, installing latest..."
+        fi
+        
+        # Use official Helm installer script (always gets latest)
         curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-        helm version
+        
+        echo "✅ Helm: $(helm version --short)"
     
     - name: Install krew (kubectl plugin manager)
       shell: bash
       run: |
-        echo "Installing latest krew..."
-        (
-          set -x; cd "$(mktemp -d)" &&
-          OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
-          ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
-          KREW="krew-${OS}_${ARCH}" &&
-          curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
-          tar zxvf "${KREW}.tar.gz" &&
-          ./"${KREW}" install krew
-        )
-        echo "${HOME}/.krew/bin" >> $GITHUB_PATH
+        if [ -d "${HOME}/.krew" ]; then
+          echo "krew already installed, updating..."
+          export PATH="${HOME}/.krew/bin:$PATH"
+          kubectl krew update
+        else
+          echo "Installing krew..."
+          (
+            set -x; cd "$(mktemp -d)" &&
+            OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
+            ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
+            KREW="krew-${OS}_${ARCH}" &&
+            curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
+            tar zxvf "${KREW}.tar.gz" &&
+            ./"${KREW}" install krew
+          )
+          echo "${HOME}/.krew/bin" >> $GITHUB_PATH
+        fi
+        echo "✅ krew installed/updated"
     
     - name: Install kubectl-cnpg plugin (latest)
       shell: bash
       run: |
-        echo "Installing latest kubectl-cnpg plugin via krew..."
+        echo "Installing/upgrading kubectl-cnpg plugin via krew..."
         export PATH="${HOME}/.krew/bin:$PATH"
+        
+        # Update krew index
         kubectl krew update
-        kubectl krew install cnpg
-        kubectl cnpg version
+        
+        # Install or upgrade cnpg plugin
+        if kubectl krew list | grep -q cnpg; then
+          echo "kubectl-cnpg already installed, upgrading..."
+          kubectl krew upgrade cnpg || true
+        else
+          echo "Installing kubectl-cnpg..."
+          kubectl krew install cnpg
+        fi
+        
+        echo "✅ kubectl-cnpg: $(kubectl cnpg version)"
     
-    - name: Verify jq installation
+    - name: Verify jq (already installed)
       shell: bash
       run: |
-        echo "Verifying jq is installed..."
-        if ! command -v jq &> /dev/null; then
-          echo "Installing jq..."
+        if command -v jq &> /dev/null; then
+          echo "✅ jq: $(jq --version)"
+        else
+          echo "jq not found, installing..."
           sudo apt-get update
           sudo apt-get install -y jq
+          echo "✅ jq: $(jq --version)"
         fi
-        jq --version
     
-    - name: Display installed versions
+    - name: Display final tool versions
       shell: bash
       run: |
         echo ""
-        echo "=== Installed Tool Versions ==="
+        echo "=== Final Installed Tool Versions ==="
         echo "kubectl: $(kubectl version --client --short 2>/dev/null || kubectl version --client)"
         echo "kind: $(kind version)"
         echo "helm: $(helm version --short)"
+        export PATH="${HOME}/.krew/bin:$PATH"
         echo "kubectl-cnpg: $(kubectl cnpg version)"
         echo "jq: $(jq --version)"
         echo "docker: $(docker --version)"
+        echo ""
+        echo "✅ All tools ready for chaos testing!"
