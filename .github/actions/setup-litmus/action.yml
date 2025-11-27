@@ -1,0 +1,127 @@
+name: 'Setup Litmus Chaos'
+description: 'Install Litmus operator, experiments, and RBAC (README Sections 3, 3.5, 3.6)'
+branding:
+  icon: 'zap'
+  color: 'orange'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Add Litmus Helm repository
+      shell: bash
+      run: |
+        echo "Adding Litmus Helm repository..."
+        helm repo add litmuschaos https://litmuschaos.github.io/litmus-helm/
+        helm repo update
+        echo "✅ Litmus Helm repo added"
+    
+    - name: Install litmus-core operator
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Installing litmus-core (operator + CRDs)..."
+        helm upgrade --install litmus-core litmuschaos/litmus-core \
+          --namespace litmus --create-namespace \
+          --wait --timeout 10m
+        
+        echo "✅ litmus-core installed"
+    
+    - name: Verify Litmus CRDs
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Verifying Litmus CRDs are installed..."
+        kubectl get crd chaosengines.litmuschaos.io
+        kubectl get crd chaosexperiments.litmuschaos.io
+        kubectl get crd chaosresults.litmuschaos.io
+        
+        echo "✅ All Litmus CRDs verified"
+    
+    - name: Wait for Litmus operator to be ready
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Waiting for Litmus operator deployment..."
+        kubectl -n litmus get deploy litmus
+        kubectl -n litmus wait --for=condition=Available deployment/litmus --timeout=5m
+        
+        echo "✅ Litmus operator is ready"
+    
+    - name: Install pod-delete chaos experiment
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Installing pod-delete chaos experiment..."
+        kubectl apply --namespace=litmus \
+          -f https://hub.litmuschaos.io/api/chaos/master?file=faults/kubernetes/pod-delete/fault.yaml
+        
+        echo ""
+        echo "Verifying experiment is installed..."
+        kubectl -n litmus get chaosexperiments
+        
+        echo "✅ pod-delete experiment installed"
+    
+    - name: Apply Litmus RBAC configuration
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Applying Litmus RBAC (ServiceAccount, ClusterRole, ClusterRoleBinding)..."
+        kubectl apply -f litmus-rbac.yaml
+        
+        echo ""
+        echo "Verifying ServiceAccount..."
+        kubectl -n litmus get serviceaccount litmus-admin
+        
+        echo "✅ Litmus RBAC applied"
+    
+    - name: Verify Litmus permissions
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Verifying ClusterRoleBinding namespace..."
+        NAMESPACE=$(kubectl get clusterrolebinding litmus-admin -o jsonpath='{.subjects[0].namespace}')
+        echo "ServiceAccount namespace: ${NAMESPACE}"
+        
+        if [ "$NAMESPACE" = "litmus" ]; then
+          echo "✅ ClusterRoleBinding correctly references litmus namespace"
+        else
+          echo "❌ Warning: ClusterRoleBinding references wrong namespace: ${NAMESPACE}"
+        fi
+        
+        echo ""
+        echo "Testing pod deletion permissions..."
+        kubectl auth can-i delete pods --as=system:serviceaccount:litmus:litmus-admin -n default
+        
+        echo "✅ Litmus permissions verified"
+    
+    - name: Display Litmus setup summary
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo ""
+        echo "=== Litmus Chaos Setup Summary ==="
+        echo ""
+        echo "Operator:"
+        kubectl -n litmus get deploy
+        
+        echo ""
+        echo "CRDs:"
+        kubectl get crd | grep litmuschaos
+        
+        echo ""
+        echo "Experiments:"
+        kubectl -n litmus get chaosexperiments
+        
+        echo ""
+        echo "ServiceAccount:"
+        kubectl -n litmus get serviceaccount litmus-admin
+        
+        echo ""
+        echo "✅ Litmus Chaos is ready for chaos testing!"

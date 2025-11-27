@@ -1,4 +1,4 @@
-name: Test Setup Infrastructure (Step 4)
+name: Test Setup Infrastructure (Step 5)
 
 on:
   workflow_dispatch:
@@ -9,9 +9,9 @@ on:
 
 jobs:
   test-setup:
-    name: Test Full Infrastructure Setup
+    name: Test Full Infrastructure + Litmus Chaos
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     
     steps:
       - name: Checkout repository
@@ -31,45 +31,39 @@ jobs:
       - name: Setup CloudNativePG operator and cluster
         uses: ./.github/actions/setup-cnpg
       
-      - name: Verify CNPG cluster is healthy
-        run: |
-          export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
-          
-          echo "=== Final CNPG Cluster Verification ==="
-          kubectl get cluster pg-eu -o wide
-          
-          echo ""
-          echo "=== PostgreSQL Pods ==="
-          kubectl get pods -l cnpg.io/cluster=pg-eu -o wide
-          
-          echo ""
-          echo "=== Check Primary Pod ==="
-          PRIMARY_POD=$(kubectl get pods -l cnpg.io/cluster=pg-eu,role=primary -o jsonpath='{.items[0].metadata.name}')
-          echo "Primary pod: ${PRIMARY_POD}"
-          
-          echo ""
-          echo "=== Verify Secrets Created ==="
-          kubectl get secrets -l cnpg.io/cluster=pg-eu
-          
-          echo ""
-          echo "✅ CNPG cluster is healthy and ready for chaos testing!"
+      - name: Setup Litmus Chaos
+        uses: ./.github/actions/setup-litmus
       
-      - name: Verify all components
+      - name: Verify complete chaos testing stack
         run: |
           export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
           
-          echo "=== Summary of Deployed Components ===" 
+          echo "=== Complete Infrastructure Verification ==="
           echo ""
-          echo "Kubernetes Cluster:"
+          echo "1. Kubernetes Cluster:"
           kubectl get nodes
           
           echo ""
-          echo "CNPG Operator:"
+          echo "2. CNPG Operator:"
           kubectl get deploy -n cnpg-system
           
           echo ""
-          echo "PostgreSQL Cluster:"
+          echo "3. PostgreSQL Cluster:"
           kubectl get cluster pg-eu
+          kubectl get pods -l cnpg.io/cluster=pg-eu
           
           echo ""
-          echo "✅ All infrastructure components deployed successfully!"
+          echo "4. Litmus Chaos Operator:"
+          kubectl -n litmus get deploy
+          
+          echo ""
+          echo "5. Chaos Experiments:"
+          kubectl -n litmus get chaosexperiments
+          
+          echo ""
+          echo "6. Chaos RBAC:"
+          kubectl -n litmus get serviceaccount litmus-admin
+          
+          echo ""
+          echo "✅ Complete chaos testing infrastructure is ready!"
+          echo "✅ Ready for chaos experiment execution!"
