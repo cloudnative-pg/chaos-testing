@@ -1,0 +1,70 @@
+name: 'Setup Kind Cluster'
+description: 'Create a Kind Kubernetes cluster for chaos testing'
+branding:
+  icon: 'box'
+  color: 'blue'
+
+inputs:
+  cluster-name:
+    description: 'Name of the Kind cluster'
+    required: false
+    default: 'chaos-test'
+  config-file:
+    description: 'Path to Kind config file'
+    required: false
+    default: '.github/actions/setup-kind/kind-config.yaml'
+
+outputs:
+  kubeconfig:
+    description: 'Path to kubeconfig file'
+    value: ${{ steps.create-cluster.outputs.kubeconfig }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create Kind cluster
+      id: create-cluster
+      shell: bash
+      run: |
+        echo "Creating Kind cluster: ${{ inputs.cluster-name }}..."
+        
+        # Create cluster with config
+        kind create cluster \
+          --name ${{ inputs.cluster-name }} \
+          --config ${{ inputs.config-file }} \
+          --wait 5m
+        
+        # Export kubeconfig path
+        KUBECONFIG_PATH="${HOME}/.kube/config"
+        echo "kubeconfig=${KUBECONFIG_PATH}" >> $GITHUB_OUTPUT
+        echo "KUBECONFIG=${KUBECONFIG_PATH}" >> $GITHUB_ENV
+        
+        echo "Kind cluster created successfully"
+    
+    - name: Verify cluster
+      shell: bash
+      run: |
+        echo ""
+        echo "=== Cluster Information ==="
+        kubectl cluster-info --context kind-${{ inputs.cluster-name }}
+        
+        echo ""
+        echo "=== Nodes ==="
+        kubectl get nodes -o wide
+        
+        echo ""
+        echo "=== Node Labels ==="
+        kubectl get nodes --show-labels
+    
+    - name: Wait for cluster to be ready
+      shell: bash
+      run: |
+        echo "Waiting for all nodes to be ready..."
+        kubectl wait --for=condition=Ready nodes --all --timeout=300s
+        
+        echo ""
+        echo "=== System Pods ==="
+        kubectl get pods -n kube-system
+        
+        echo ""
+        echo "Cluster is ready for workloads!"
