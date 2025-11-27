@@ -1,4 +1,4 @@
-name: Test Setup Infrastructure (Step 5)
+name: Test Setup Infrastructure (Step 6)
 
 on:
   workflow_dispatch:
@@ -9,9 +9,9 @@ on:
 
 jobs:
   test-setup:
-    name: Test Full Infrastructure + Litmus Chaos
+    name: Test Complete Stack + Prometheus
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     
     steps:
       - name: Checkout repository
@@ -34,11 +34,14 @@ jobs:
       - name: Setup Litmus Chaos
         uses: ./.github/actions/setup-litmus
       
-      - name: Verify complete chaos testing stack
+      - name: Setup Prometheus Monitoring
+        uses: ./.github/actions/setup-prometheus
+      
+      - name: Verify complete chaos testing stack with monitoring
         run: |
           export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
           
-          echo "=== Complete Infrastructure Verification ==="
+          echo "=== Complete Chaos Testing Stack Verification ==="
           echo ""
           echo "1. Kubernetes Cluster:"
           kubectl get nodes
@@ -65,5 +68,10 @@ jobs:
           kubectl -n litmus get serviceaccount litmus-admin
           
           echo ""
-          echo "✅ Complete chaos testing infrastructure is ready!"
-          echo "✅ Ready for chaos experiment execution!"
+          echo "7. Prometheus Monitoring:"
+          kubectl -n monitoring get statefulset -l app.kubernetes.io/name=prometheus
+          kubectl -n monitoring get servicemonitors
+          
+          echo ""
+          echo "✅ Complete chaos testing infrastructure with monitoring is ready!"
+          echo "✅ Ready to run Jepsen + Chaos experiments with Prometheus probes!"
