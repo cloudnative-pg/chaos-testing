@@ -1,4 +1,4 @@
-name: Test Setup Infrastructure (Step 2)
+name: Test Setup Infrastructure (Step 3)
 
 on:
   workflow_dispatch:
@@ -9,9 +9,9 @@ on:
 
 jobs:
   test-setup:
-    name: Test Disk Cleanup + Tool Installation
+    name: Test Disk Cleanup + Tools + Kind Cluster
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     
     steps:
       - name: Checkout repository
@@ -23,28 +23,61 @@ jobs:
       - name: Setup chaos testing tools
         uses: ./.github/actions/setup-tools
       
+      - name: Setup Kind cluster via CNPG Playground
+        uses: ./.github/actions/setup-kind
+        with:
+          region: eu
+      
+      - name: Verify cluster is ready
+        run: |
+          export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+          
+          echo "=== Verifying cluster setup ==="
+          kubectl cluster-info --context kind-k8s-eu
+          
+          echo ""
+          echo "=== All nodes ==="
+          kubectl get nodes -o wide
+          
+          echo ""
+          echo "=== PostgreSQL nodes ==="
+          kubectl get nodes -l node-role.kubernetes.io/postgres -o wide
+          
+          echo ""
+          echo "=== Verify node count ==="
+          TOTAL_NODES=$(kubectl get nodes --no-headers | wc -l)
+          POSTGRES_NODES=$(kubectl get nodes -l node-role.kubernetes.io/postgres --no-headers | wc -l)
+          
+          echo "Total nodes: ${TOTAL_NODES}"
+          echo "PostgreSQL nodes: ${POSTGRES_NODES}"
+          
+          if [ "$POSTGRES_NODES" -ge 2 ]; then
+            echo "✅ Sufficient PostgreSQL nodes for HA testing"
+          else
+            echo "❌ Expected at least 2 PostgreSQL nodes, found ${POSTGRES_NODES}"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ Cluster is ready for CNPG deployment!"
+      
       - name: Verify tools installed
         run: |
           echo "=== Verifying installed tools ==="
           
-          # Verify kubectl
           kubectl version --client
           echo "✅ kubectl installed"
           
-          # Verify Kind
           kind version
           echo "✅ Kind installed"
           
-          # Verify Helm
           helm version
           echo "✅ Helm installed"
           
-          # Verify kubectl-cnpg plugin
           export PATH="${HOME}/.krew/bin:$PATH"
           kubectl cnpg version
           echo "✅ kubectl-cnpg plugin installed"
           
-          # Verify jq
           jq --version
           echo "✅ jq available"
           
