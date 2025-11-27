@@ -1,17 +1,17 @@
-name: Test Disk Cleanup (Step 1)
+name: Test Setup Infrastructure (Step 2)
 
 on:
   workflow_dispatch:
   pull_request:
     paths:
-      - '.github/actions/free-disk-space/**'
+      - '.github/actions/**'
       - '.github/workflows/test-setup.yml'
 
 jobs:
-  test-disk-cleanup:
-    name: Test Disk Cleanup Action
+  test-setup:
+    name: Test Disk Cleanup + Tool Installation
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     
     steps:
       - name: Checkout repository
@@ -19,3 +19,34 @@ jobs:
       
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
+      
+      - name: Setup chaos testing tools
+        uses: ./.github/actions/setup-tools
+      
+      - name: Verify tools installed
+        run: |
+          echo "=== Verifying installed tools ==="
+          
+          # Verify kubectl
+          kubectl version --client
+          echo "✅ kubectl installed"
+          
+          # Verify Kind
+          kind version
+          echo "✅ Kind installed"
+          
+          # Verify Helm
+          helm version
+          echo "✅ Helm installed"
+          
+          # Verify kubectl-cnpg plugin
+          export PATH="${HOME}/.krew/bin:$PATH"
+          kubectl cnpg version
+          echo "✅ kubectl-cnpg plugin installed"
+          
+          # Verify jq
+          jq --version
+          echo "✅ jq available"
+          
+          echo ""
+          echo "=== All tools verified successfully! ==="
