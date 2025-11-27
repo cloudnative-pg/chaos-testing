@@ -24,7 +24,7 @@ spec:
     # Startup (max 10 minutes, replicas need to be streaming with lag <32MB)
     startup:
       type: streaming
-        maximumLag: 32Mi
+      maximumLag: 32Mi
       periodSeconds: 5
       timeoutSeconds: 3
       failureThreshold: 120
@@ -36,7 +36,7 @@ spec:
     # Readiness (max 1 minute of consecutive failure, replicas need to be streaming with lag <32MB)
     readiness:
       type: streaming
-        maximumLag: 32Mi
+      maximumLag: 32Mi
       periodSeconds: 5
       timeoutSeconds: 3
       failureThreshold: 12
