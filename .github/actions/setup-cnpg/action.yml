@@ -52,8 +52,8 @@ runs:
         echo "Waiting for CNPG webhook service to be ready..."
         echo "This ensures the mutating webhook is available before creating clusters..."
         
-        # Wait for webhook pod to be ready
-        kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=cloudnative-pg -n cnpg-system --timeout=2m
+        # Wait for deployment to be fully ready (handles pod restarts correctly)
+        kubectl -n cnpg-system rollout status deployment cnpg-controller-manager --timeout=3m
         
         # Give the webhook a few more seconds to fully initialize
         sleep 10
