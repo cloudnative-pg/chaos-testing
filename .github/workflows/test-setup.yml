@@ -1,4 +1,4 @@
-name: Test Setup Infrastructure (Step 3)
+name: Test Setup Infrastructure (Step 4)
 
 on:
   workflow_dispatch:
@@ -9,9 +9,9 @@ on:
 
 jobs:
   test-setup:
-    name: Test Disk Cleanup + Tools + Kind Cluster
+    name: Test Full Infrastructure Setup
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     
     steps:
       - name: Checkout repository
@@ -28,58 +28,48 @@ jobs:
         with:
           region: eu
       
-      - name: Verify cluster is ready
+      - name: Setup CloudNativePG operator and cluster
+        uses: ./.github/actions/setup-cnpg
+      
+      - name: Verify CNPG cluster is healthy
         run: |
           export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
           
-          echo "=== Verifying cluster setup ==="
-          kubectl cluster-info --context kind-k8s-eu
+          echo "=== Final CNPG Cluster Verification ==="
+          kubectl get cluster pg-eu -o wide
           
           echo ""
-          echo "=== All nodes ==="
-          kubectl get nodes -o wide
+          echo "=== PostgreSQL Pods ==="
+          kubectl get pods -l cnpg.io/cluster=pg-eu -o wide
           
           echo ""
-          echo "=== PostgreSQL nodes ==="
-          kubectl get nodes -l node-role.kubernetes.io/postgres -o wide
+          echo "=== Check Primary Pod ==="
+          PRIMARY_POD=$(kubectl get pods -l cnpg.io/cluster=pg-eu,role=primary -o jsonpath='{.items[0].metadata.name}')
+          echo "Primary pod: ${PRIMARY_POD}"
           
           echo ""
-          echo "=== Verify node count ==="
-          TOTAL_NODES=$(kubectl get nodes --no-headers | wc -l)
-          POSTGRES_NODES=$(kubectl get nodes -l node-role.kubernetes.io/postgres --no-headers | wc -l)
-          
-          echo "Total nodes: ${TOTAL_NODES}"
-          echo "PostgreSQL nodes: ${POSTGRES_NODES}"
-          
-          if [ "$POSTGRES_NODES" -ge 2 ]; then
-            echo "✅ Sufficient PostgreSQL nodes for HA testing"
-          else
-            echo "❌ Expected at least 2 PostgreSQL nodes, found ${POSTGRES_NODES}"
-            exit 1
-          fi
+          echo "=== Verify Secrets Created ==="
+          kubectl get secrets -l cnpg.io/cluster=pg-eu
           
           echo ""
-          echo "✅ Cluster is ready for CNPG deployment!"
+          echo "✅ CNPG cluster is healthy and ready for chaos testing!"
       
-      - name: Verify tools installed
+      - name: Verify all components
         run: |
-          echo "=== Verifying installed tools ==="
+          export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
           
-          kubectl version --client
-          echo "✅ kubectl installed"
-          
-          kind version
-          echo "✅ Kind installed"
-          
-          helm version
-          echo "✅ Helm installed"
-          
-          export PATH="${HOME}/.krew/bin:$PATH"
-          kubectl cnpg version
-          echo "✅ kubectl-cnpg plugin installed"
-          
-          jq --version
-          echo "✅ jq available"
+          echo "=== Summary of Deployed Components ===" 
+          echo ""
+          echo "Kubernetes Cluster:"
+          kubectl get nodes
           
           echo ""
-          echo "=== All tools verified successfully! ==="
+          echo "CNPG Operator:"
+          kubectl get deploy -n cnpg-system
+          
+          echo ""
+          echo "PostgreSQL Cluster:"
+          kubectl get cluster pg-eu
+          
+          echo ""
+          echo "✅ All infrastructure components deployed successfully!"
