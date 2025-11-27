@@ -1,0 +1,124 @@
+name: Chaos Test - Full Jepsen + Litmus
+
+on:
+  workflow_dispatch:
+    inputs:
+      chaos_duration:
+        description: 'Chaos duration in seconds'
+        required: false
+        default: '300'
+        type: string
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  chaos-test:
+    name: Run Jepsen + Chaos Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Free disk space
+        uses: ./.github/actions/free-disk-space
+      
+      - name: Setup chaos testing tools
+        uses: ./.github/actions/setup-tools
+      
+      - name: Setup Kind cluster via CNPG Playground
+        uses: ./.github/actions/setup-kind
+        with:
+          region: eu
+      
+      - name: Setup CloudNativePG operator and cluster
+        uses: ./.github/actions/setup-cnpg
+      
+      - name: Setup Litmus Chaos
+        uses: ./.github/actions/setup-litmus
+      
+      - name: Setup Prometheus Monitoring
+        uses: ./.github/actions/setup-prometheus
+      
+      - name: Run Jepsen + Chaos test
+        run: |
+          export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+          export LITMUS_NAMESPACE=litmus
+          export PROMETHEUS_NAMESPACE=monitoring
+          
+          echo "=== Starting Jepsen + Chaos Test ==="
+          echo "Cluster: pg-eu"
+          echo "Namespace: app"
+          echo "Chaos duration: ${{ inputs.chaos_duration || '300' }} seconds"
+          echo ""
+          
+          # Run the chaos test script
+          ./scripts/run-jepsen-chaos-test-v2.sh pg-eu app ${{ inputs.chaos_duration || '300' }}
+      
+      - name: Collect test results
+        if: always()
+        run: |
+          export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+          
+          echo "=== Collecting Test Results ==="
+          
+          # Find the latest results directory
+          RESULTS_DIR=$(ls -td logs/jepsen-chaos-* 2>/dev/null | head -1 || echo "")
+          
+          if [ -z "$RESULTS_DIR" ]; then
+            echo "❌ No results directory found"
+            exit 0
+          fi
+          
+          echo "Results directory: $RESULTS_DIR"
+          echo ""
+          
+          # Parse Jepsen verdict
+          echo "=== Jepsen Verdict ==="
+          if [ -f "$RESULTS_DIR/results/results.edn" ]; then
+            grep ':valid?' "$RESULTS_DIR/results/results.edn" || echo "No verdict found"
+          else
+            echo "❌ results.edn not found"
+          fi
+          
+          echo ""
+          echo "=== Litmus Verdict ==="
+          kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete \
+            -o jsonpath='{.status.experimentStatus.verdict}' 2>/dev/null || echo "No chaos result found"
+          
+          echo ""
+          echo "=== Test Summary ==="
+          ls -lh "$RESULTS_DIR"/ 2>/dev/null || true
+      
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-test-results-${{ github.run_number }}
+          path: |
+            logs/jepsen-chaos-*/results/results.edn
+            logs/jepsen-chaos-*/results/history.edn
+            logs/jepsen-chaos-*/results/STATISTICS.txt
+            logs/jepsen-chaos-*/chaos-results/chaosresult.yaml
+            logs/jepsen-chaos-*/test.log
+          retention-days: 30
+          if-no-files-found: warn
+      
+      - name: Display final status
+        if: always()
+        run: |
+          export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+          
+          echo ""
+          echo "=== Final Cluster Status ==="
+          kubectl get cluster pg-eu || true
+          kubectl get pods -l cnpg.io/cluster=pg-eu || true
+          
+          echo ""
+          echo "=== Chaos Engine Status ==="
+          kubectl -n litmus get chaosengine || true
+          
+          echo ""
+          echo "✅ Chaos test workflow completed!"
