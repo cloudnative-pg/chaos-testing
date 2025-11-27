@@ -44,6 +44,22 @@ runs:
         
         echo "✅ CNPG operator configured"
     
+    - name: Wait for CNPG webhook to be ready
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Waiting for CNPG webhook service to be ready..."
+        echo "This ensures the mutating webhook is available before creating clusters..."
+        
+        # Wait for webhook pod to be ready
+        kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=cloudnative-pg -n cnpg-system --timeout=2m
+        
+        # Give the webhook a few more seconds to fully initialize
+        sleep 10
+        
+        echo "✅ CNPG webhook is ready"
+    
     - name: Deploy PostgreSQL cluster
       shell: bash
       run: |
