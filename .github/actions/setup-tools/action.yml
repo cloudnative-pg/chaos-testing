@@ -18,7 +18,12 @@ runs:
           echo "kubectl not found, installing latest stable..."
         fi
         
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        # Get latest stable version (verified URL)
+        KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+        echo "Latest kubectl version: $KUBECTL_VERSION"
+        
+        # Download and install
+        curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
         chmod +x kubectl
         sudo mv kubectl /usr/local/bin/kubectl
         
@@ -36,9 +41,11 @@ runs:
           echo "Kind not found, installing latest..."
         fi
         
-        # Get latest release version from GitHub API
+        # Get latest release version from GitHub API (verified URL)
         KIND_VERSION=$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         echo "Latest Kind version: ${KIND_VERSION}"
+        
+        # Download and install
         curl -Lo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
         chmod +x ./kind
         sudo mv ./kind /usr/local/bin/kind
@@ -56,8 +63,8 @@ runs:
           echo "Helm not found, installing latest..."
         fi
         
-        # Use official Helm installer script (always gets latest)
-        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        # Use official Helm installer script (verified URL - same as README uses)
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
         
         echo "✅ Helm: $(helm version --short)"
     
@@ -70,13 +77,17 @@ runs:
           kubectl krew update
         else
           echo "Installing krew..."
+          # Official krew installation method (verified URLs)
           (
-            set -x; cd "$(mktemp -d)" &&
-            OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
-            ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
-            KREW="krew-${OS}_${ARCH}" &&
-            curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
-            tar zxvf "${KREW}.tar.gz" &&
+            set -e
+            cd "$(mktemp -d)"
+            OS="$(uname | tr '[:upper:]' '[:lower:]')"
+            ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')"
+            KREW="krew-${OS}_${ARCH}"
+            
+            # Download from GitHub releases (verified URL)
+            curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz"
+            tar zxvf "${KREW}.tar.gz"
             ./"${KREW}" install krew
           )
           echo "${HOME}/.krew/bin" >> $GITHUB_PATH
@@ -92,7 +103,7 @@ runs:
         # Update krew index
         kubectl krew update
         
-        # Install or upgrade cnpg plugin
+        # Install or upgrade cnpg plugin (same method as README)
         if kubectl krew list | grep -q cnpg; then
           echo "kubectl-cnpg already installed, upgrading..."
           kubectl krew upgrade cnpg || true
@@ -110,7 +121,7 @@ runs:
           echo "✅ jq: $(jq --version)"
         else
           echo "jq not found, installing..."
-          sudo apt-get update
+          sudo apt-get update -qq
           sudo apt-get install -y jq
           echo "✅ jq: $(jq --version)"
         fi
