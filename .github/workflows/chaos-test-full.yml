@@ -104,6 +104,7 @@ jobs:
             logs/jepsen-chaos-*/results/results.edn
             logs/jepsen-chaos-*/results/history.edn
             logs/jepsen-chaos-*/results/STATISTICS.txt
+            logs/jepsen-chaos-*/results/*.png
             logs/jepsen-chaos-*/chaos-results/chaosresult.yaml
             logs/jepsen-chaos-*/test.log
           retention-days: 30
