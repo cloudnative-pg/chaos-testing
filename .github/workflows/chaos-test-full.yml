@@ -152,6 +152,31 @@ jobs:
             -o jsonpath='{.status.experimentStatus.verdict}' 2>/dev/null || echo "No chaos result found"
           
           echo ""
+          echo "=== Probe Debugging ==="
+          echo "Checking why probes failed..."
+          
+          # Get chaos engine status
+          echo ""
+          echo "1. Chaos Engine Status:"
+          kubectl -n litmus get chaosengine cnpg-jepsen-chaos -o yaml 2>/dev/null | grep -A 20 "status:" || echo "Could not get chaos engine status"
+          
+          # Get experiment pod logs
+          echo ""
+          echo "2. Chaos Experiment Pod Logs (last 100 lines):"
+          EXPERIMENT_POD=$(kubectl -n litmus get pods -l chaosUID=$(kubectl -n litmus get chaosengine cnpg-jepsen-chaos -o jsonpath='{.metadata.uid}' 2>/dev/null) -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+          if [ -n "$EXPERIMENT_POD" ]; then
+            echo "Experiment pod: $EXPERIMENT_POD"
+            kubectl -n litmus logs $EXPERIMENT_POD --tail=100 2>/dev/null | grep -i "probe" || echo "No probe-related logs found"
+          else
+            echo "Experiment pod not found"
+          fi
+          
+          # Get probe status details
+          echo ""
+          echo "3. Detailed Probe Status:"
+          kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete -o jsonpath='{.status.probeStatuses}' 2>/dev/null | jq '.' || echo "Could not get probe statuses"
+          
+          echo ""
           echo "=== Test Summary ==="
           ls -lh "$RESULTS_DIR"/ 2>/dev/null || true
       
