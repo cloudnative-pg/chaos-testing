@@ -258,16 +258,11 @@ if ! kubectl cluster-info &>/dev/null; then
     exit 2
 fi
 
-# Check Litmus operator + control plane
+# Check Litmus operator
+# Note: litmus-core (Litmus 3.x) only has operator, no control plane/portal
 if ! kubectl get deployment chaos-operator-ce -n "${LITMUS_NAMESPACE}" &>/dev/null \
     && ! kubectl get deployment litmus -n "${LITMUS_NAMESPACE}" &>/dev/null; then
     error "Litmus chaos operator not found in namespace '${LITMUS_NAMESPACE}'. Install or repair via Helm (see README section 3)."
-    exit 2
-fi
-
-if ! kubectl get deployment chaos-litmus-portal-server -n "${LITMUS_NAMESPACE}" &>/dev/null \
-    && ! kubectl get deployment chaos-litmus-server -n "${LITMUS_NAMESPACE}" &>/dev/null; then
-    error "Litmus control plane deployment not found in namespace '${LITMUS_NAMESPACE}'. Install or repair via Helm (see README section 3)."
     exit 2
 fi
 
