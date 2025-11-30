@@ -76,14 +76,39 @@ runs:
       run: |
         export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
         
-        echo "Verifying Prometheus setup..."
+        echo "=== Verifying Prometheus Setup ==="
         echo ""
-        echo "ServiceMonitors:"
+        echo "1. ServiceMonitors:"
         kubectl -n monitoring get servicemonitors
         
         echo ""
-        echo "Prometheus StatefulSet:"
-        kubectl -n monitoring get statefulset -l app.kubernetes.io/name=prometheus
+        echo "2. CNPG Metrics Service:"
+        kubectl -n default get svc pg-eu-metrics -o wide
         
         echo ""
-        echo "✅ Prometheus monitoring is ready for chaos experiment probes!"
+        echo "3. Service Endpoints (should show PostgreSQL pod IPs):"
+        kubectl -n default get endpoints pg-eu-metrics
+        
+        echo ""
+        echo "4. PostgreSQL Pods:"
+        kubectl -n default get pods -l cnpg.io/cluster=pg-eu -o wide
+        
+        echo ""
+        echo "5. Prometheus Configuration:"
+        kubectl -n monitoring get prometheus -o yaml | grep -A 5 serviceMonitorSelector || echo "No serviceMonitorSelector found"
+        
+        echo ""
+        echo "6. Wait 60 seconds for Prometheus to discover and scrape targets..."
+        sleep 60
+        
+        echo ""
+        echo "7. Check Prometheus targets (via API):"
+        PROM_POD=$(kubectl -n monitoring get pods -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].metadata.name}')
+        kubectl -n monitoring exec $PROM_POD -- wget -qO- 'http://localhost:9090/api/v1/targets' | grep -o '"job":"[^"]*"' | sort -u || echo "Could not fetch targets"
+        
+        echo ""
+        echo "8. Test CNPG metric query:"
+        kubectl -n monitoring exec $PROM_POD -- wget -qO- 'http://localhost:9090/api/v1/query?query=cnpg_collector_up' || echo "Metric query failed"
+        
+        echo ""
+        echo "✅ Prometheus monitoring verification complete"
