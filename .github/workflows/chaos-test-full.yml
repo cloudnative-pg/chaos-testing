@@ -45,26 +45,65 @@ jobs:
       - name: Setup Prometheus Monitoring
         uses: ./.github/actions/setup-prometheus
       
-      - name: Wait for Prometheus to scrape CNPG metrics
+      - name: Verify Prometheus is accessible and has CNPG metrics
         run: |
           export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
           
-          echo "Waiting for Prometheus to discover and scrape CNPG metrics..."
-          echo "This ensures probes have data to query during chaos test"
+          echo "=== Testing Prometheus Accessibility and Metrics ==="
           
-          # Wait for at least 2 scrape intervals (30s each = 60s total)
-          echo "Waiting 90 seconds for metrics collection..."
+          # Test 1: Prometheus service is accessible
+          echo ""
+          echo "1. Testing Prometheus service accessibility..."
+          kubectl -n monitoring get svc prometheus-kube-prometheus-prometheus
+          
+          # Test 2: Create a test pod to query Prometheus (simulates Litmus probe)
+          echo ""
+          echo "2. Creating test pod to query Prometheus (simulates Litmus probe behavior)..."
+          kubectl run prom-test --image=curlimages/curl:latest --rm -i --restart=Never -- \
+            curl -s "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/api/v1/query?query=up" \
+            | grep -q '"status":"success"' && echo "✅ Prometheus API accessible" || echo "❌ Prometheus API not accessible"
+          
+          # Test 3: Wait for metrics to be available
+          echo ""
+          echo "3. Waiting 90 seconds for Prometheus to scrape CNPG metrics..."
           sleep 90
           
-          # Verify metrics are available
+          # Test 4: Query CNPG metrics
           echo ""
-          echo "Verifying CNPG metrics are being scraped..."
+          echo "4. Testing CNPG metric query (cnpg_collector_up)..."
           PROM_POD=$(kubectl -n monitoring get pods -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].metadata.name}')
           
-          # Check if cnpg_collector_up metric exists
-          kubectl -n monitoring exec $PROM_POD -- wget -qO- 'http://localhost:9090/api/v1/query?query=cnpg_collector_up' | grep -q '"status":"success"' && echo "✅ CNPG metrics available" || echo "⚠️  Warning: CNPG metrics may not be ready yet"
+          METRIC_RESULT=$(kubectl -n monitoring exec $PROM_POD -- wget -qO- 'http://localhost:9090/api/v1/query?query=cnpg_collector_up{cluster="pg-eu"}' 2>/dev/null || echo "failed")
           
-          echo "✅ Ready to start chaos test with Prometheus probes"
+          echo "Metric query result:"
+          echo "$METRIC_RESULT"
+          
+          if echo "$METRIC_RESULT" | grep -q '"status":"success"'; then
+            echo "✅ CNPG metrics query successful"
+            
+            # Check if we have data
+            if echo "$METRIC_RESULT" | grep -q '"result":\['; then
+              echo "✅ CNPG metrics data available"
+              
+              # Extract metric value
+              VALUE=$(echo "$METRIC_RESULT" | grep -o '"value":\[[^]]*\]' | head -1)
+              echo "Metric value: $VALUE"
+            else
+              echo "⚠️  Warning: No CNPG metric data found - probes may fail"
+            fi
+          else
+            echo "❌ CNPG metrics query failed - probes will fail"
+          fi
+          
+          # Test 5: Verify from a temporary pod (like Litmus will do)
+          echo ""
+          echo "5. Testing Prometheus query from temporary pod (like Litmus experiment pod)..."
+          kubectl run prom-cnpg-test --image=curlimages/curl:latest --rm -i --restart=Never -- \
+            curl -s "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/api/v1/query?query=sum(cnpg_collector_up%7Bcluster%3D%22pg-eu%22%7D)" \
+            | tee /dev/stderr | grep -q '"status":"success"' && echo "✅ CNPG query from pod successful" || echo "❌ CNPG query from pod failed"
+          
+          echo ""
+          echo "✅ Prometheus verification complete - ready for chaos test"
       
       - name: Run Jepsen + Chaos test
         run: |
