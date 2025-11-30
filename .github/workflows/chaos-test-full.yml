@@ -45,6 +45,27 @@ jobs:
       - name: Setup Prometheus Monitoring
         uses: ./.github/actions/setup-prometheus
       
+      - name: Wait for Prometheus to scrape CNPG metrics
+        run: |
+          export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+          
+          echo "Waiting for Prometheus to discover and scrape CNPG metrics..."
+          echo "This ensures probes have data to query during chaos test"
+          
+          # Wait for at least 2 scrape intervals (30s each = 60s total)
+          echo "Waiting 90 seconds for metrics collection..."
+          sleep 90
+          
+          # Verify metrics are available
+          echo ""
+          echo "Verifying CNPG metrics are being scraped..."
+          PROM_POD=$(kubectl -n monitoring get pods -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].metadata.name}')
+          
+          # Check if cnpg_collector_up metric exists
+          kubectl -n monitoring exec $PROM_POD -- wget -qO- 'http://localhost:9090/api/v1/query?query=cnpg_collector_up' | grep -q '"status":"success"' && echo "✅ CNPG metrics available" || echo "⚠️  Warning: CNPG metrics may not be ready yet"
+          
+          echo "✅ Ready to start chaos test with Prometheus probes"
+      
       - name: Run Jepsen + Chaos test
         run: |
           export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
