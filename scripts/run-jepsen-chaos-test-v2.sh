@@ -1055,7 +1055,7 @@ EOF
     
     log "Step 9.5/10: Waiting for End-of-Test (EOT) probes to complete..."
     
-    EOT_WAIT_TIME=110  # 110 seconds to be safe
+    EOT_WAIT_TIME=180  # 3 minutes to allow experiment to fully complete
     
     log "Chaos duration was ${TEST_DURATION}s"
     log "Allowing ${EOT_WAIT_TIME}s for EOT probes (initialDelay + retries)"
