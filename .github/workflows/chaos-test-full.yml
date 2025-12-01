@@ -8,9 +8,13 @@ on:
         required: false
         default: '300'
         type: string
+  pull_request:
+    branches:
+      - main
+      - dev-2
   schedule:
-    # Run weekly on Sunday at 2 AM UTC
-    - cron: '0 2 * * 0'
+    # Run weekly on Sunday at 2 PM Italy time
+    - cron: '0 13 * * 0'
 
 jobs:
   chaos-test:
