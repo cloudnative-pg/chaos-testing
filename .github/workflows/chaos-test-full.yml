@@ -153,28 +153,44 @@ jobs:
           
           echo ""
           echo "=== Probe Debugging ==="
-          echo "Checking why probes failed..."
+          echo "Checking why probes show 'Awaited' verdict..."
           
-          # Get chaos engine status
+          # Get chaos engine details
           echo ""
-          echo "1. Chaos Engine Status:"
-          kubectl -n litmus get chaosengine cnpg-jepsen-chaos -o yaml 2>/dev/null | grep -A 20 "status:" || echo "Could not get chaos engine status"
+          echo "1. Chaos Engine Full Status:"
+          kubectl -n litmus get chaosengine cnpg-jepsen-chaos -o yaml 2>/dev/null || echo "Could not get chaos engine"
           
-          # Get experiment pod logs
+          # Find and get experiment pod
           echo ""
-          echo "2. Chaos Experiment Pod Logs (last 100 lines):"
-          EXPERIMENT_POD=$(kubectl -n litmus get pods -l chaosUID=$(kubectl -n litmus get chaosengine cnpg-jepsen-chaos -o jsonpath='{.metadata.uid}' 2>/dev/null) -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-          if [ -n "$EXPERIMENT_POD" ]; then
+          echo "2. Finding Chaos Experiment Pod:"
+          CHAOS_UID=$(kubectl -n litmus get chaosengine cnpg-jepsen-chaos -o jsonpath='{.metadata.uid}' 2>/dev/null)
+          echo "Chaos Engine UID: $CHAOS_UID"
+          
+          if [ -n "$CHAOS_UID" ]; then
+            EXPERIMENT_POD=$(kubectl -n litmus get pods -l chaosUID=$CHAOS_UID -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
             echo "Experiment pod: $EXPERIMENT_POD"
-            kubectl -n litmus logs $EXPERIMENT_POD --tail=100 2>/dev/null | grep -i "probe" || echo "No probe-related logs found"
+            
+            if [ -n "$EXPERIMENT_POD" ]; then
+              echo ""
+              echo "3. Experiment Pod Full Logs:"
+              kubectl -n litmus logs $EXPERIMENT_POD 2>/dev/null || echo "Could not get pod logs"
+              
+              echo ""
+              echo "4. Experiment Pod Status:"
+              kubectl -n litmus get pod $EXPERIMENT_POD -o yaml 2>/dev/null | grep -A 30 "status:" || echo "Could not get pod status"
+            else
+              echo "Experiment pod not found with chaosUID label"
+              echo "All pods in litmus namespace:"
+              kubectl -n litmus get pods
+            fi
           else
-            echo "Experiment pod not found"
+            echo "Could not get chaos engine UID"
           fi
           
-          # Get probe status details
+          # Get chaos result details
           echo ""
-          echo "3. Detailed Probe Status:"
-          kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete -o jsonpath='{.status.probeStatuses}' 2>/dev/null | jq '.' || echo "Could not get probe statuses"
+          echo "5. ChaosResult Full Details:"
+          kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete -o yaml 2>/dev/null || echo "Could not get chaos result"
           
           echo ""
           echo "=== Test Summary ==="
