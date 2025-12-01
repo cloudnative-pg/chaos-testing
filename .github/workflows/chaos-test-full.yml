@@ -45,65 +45,19 @@ jobs:
       - name: Setup Prometheus Monitoring
         uses: ./.github/actions/setup-prometheus
       
-      - name: Verify Prometheus is accessible and has CNPG metrics
+      - name: Verify Prometheus is ready for chaos test
         run: |
           export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
           
-          echo "=== Testing Prometheus Accessibility and Metrics ==="
+          echo "Verifying Prometheus is ready..."
           
-          # Test 1: Prometheus service is accessible
-          echo ""
-          echo "1. Testing Prometheus service accessibility..."
-          kubectl -n monitoring get svc prometheus-kube-prometheus-prometheus
+          # Quick check that Prometheus service exists
+          kubectl -n monitoring get svc prometheus-kube-prometheus-prometheus >/dev/null 2>&1 || {
+            echo "❌ Prometheus service not found"
+            exit 1
+          }
           
-          # Test 2: Create a test pod to query Prometheus (simulates Litmus probe)
-          echo ""
-          echo "2. Creating test pod to query Prometheus (simulates Litmus probe behavior)..."
-          kubectl run prom-test --image=curlimages/curl:latest --rm -i --restart=Never -- \
-            curl -s "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/api/v1/query?query=up" \
-            | grep -q '"status":"success"' && echo "✅ Prometheus API accessible" || echo "❌ Prometheus API not accessible"
-          
-          # Test 3: Wait for metrics to be available
-          echo ""
-          echo "3. Waiting 90 seconds for Prometheus to scrape CNPG metrics..."
-          sleep 90
-          
-          # Test 4: Query CNPG metrics
-          echo ""
-          echo "4. Testing CNPG metric query (cnpg_collector_up)..."
-          PROM_POD=$(kubectl -n monitoring get pods -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].metadata.name}')
-          
-          METRIC_RESULT=$(kubectl -n monitoring exec $PROM_POD -- wget -qO- 'http://localhost:9090/api/v1/query?query=cnpg_collector_up{cluster="pg-eu"}' 2>/dev/null || echo "failed")
-          
-          echo "Metric query result:"
-          echo "$METRIC_RESULT"
-          
-          if echo "$METRIC_RESULT" | grep -q '"status":"success"'; then
-            echo "✅ CNPG metrics query successful"
-            
-            # Check if we have data
-            if echo "$METRIC_RESULT" | grep -q '"result":\['; then
-              echo "✅ CNPG metrics data available"
-              
-              # Extract metric value
-              VALUE=$(echo "$METRIC_RESULT" | grep -o '"value":\[[^]]*\]' | head -1)
-              echo "Metric value: $VALUE"
-            else
-              echo "⚠️  Warning: No CNPG metric data found - probes may fail"
-            fi
-          else
-            echo "❌ CNPG metrics query failed - probes will fail"
-          fi
-          
-          # Test 5: Verify from a temporary pod (like Litmus will do)
-          echo ""
-          echo "5. Testing Prometheus query from temporary pod (like Litmus experiment pod)..."
-          kubectl run prom-cnpg-test --image=curlimages/curl:latest --rm -i --restart=Never -- \
-            curl -s "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/api/v1/query?query=sum(cnpg_collector_up%7Bcluster%3D%22pg-eu%22%7D)" \
-            | tee /dev/stderr | grep -q '"status":"success"' && echo "✅ CNPG query from pod successful" || echo "❌ CNPG query from pod failed"
-          
-          echo ""
-          echo "✅ Prometheus verification complete - ready for chaos test"
+          echo "✅ Prometheus is ready for chaos test"
       
       - name: Run Jepsen + Chaos test
         run: |
@@ -150,74 +104,6 @@ jobs:
           echo "=== Litmus Verdict ==="
           kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete \
             -o jsonpath='{.status.experimentStatus.verdict}' 2>/dev/null || echo "No chaos result found"
-          
-          echo ""
-          echo "=== Probe Debugging ==="
-          echo "Checking why probes show 'Awaited' verdict..."
-          
-          # Get chaos engine details
-          echo ""
-          echo "1. Chaos Engine Full Status:"
-          kubectl -n litmus get chaosengine cnpg-jepsen-chaos -o yaml 2>/dev/null || echo "Could not get chaos engine"
-          
-          # Find and get experiment pod
-          echo ""
-          echo "2. Finding Chaos Experiment Pod:"
-          CHAOS_UID=$(kubectl -n litmus get chaosengine cnpg-jepsen-chaos -o jsonpath='{.metadata.uid}' 2>/dev/null)
-          echo "Chaos Engine UID: $CHAOS_UID"
-          
-          if [ -n "$CHAOS_UID" ]; then
-            EXPERIMENT_POD=$(kubectl -n litmus get pods -l chaosUID=$CHAOS_UID -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-            echo "Experiment pod: $EXPERIMENT_POD"
-            
-            if [ -n "$EXPERIMENT_POD" ]; then
-              echo ""
-              echo "3. Experiment Pod Full Logs:"
-              kubectl -n litmus logs $EXPERIMENT_POD 2>/dev/null || echo "Could not get pod logs"
-              
-              echo ""
-              echo "4. Experiment Pod Status:"
-              kubectl -n litmus get pod $EXPERIMENT_POD -o yaml 2>/dev/null | grep -A 30 "status:" || echo "Could not get pod status"
-            else
-              echo "Experiment pod not found with chaosUID label"
-              echo "All pods in litmus namespace:"
-              kubectl -n litmus get pods
-            fi
-          else
-            echo "Could not get chaos engine UID"
-          fi
-          
-          # Get chaos result details
-          echo ""
-          echo "5. ChaosResult Full Details:"
-          kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete -o yaml 2>/dev/null || echo "Could not get chaos result"
-          
-          # Get the actual experiment job pod (not the runner)
-          echo ""
-          echo "6. Chaos Experiment Job Pod:"
-          JOB_NAME=$(kubectl -n litmus get chaosengine cnpg-jepsen-chaos -o jsonpath='{.status.experiments[0].experimentPod}' 2>/dev/null | sed 's/-[^-]*$//')
-          echo "Job name: $JOB_NAME"
-          
-          if [ -n "$JOB_NAME" ]; then
-            EXPERIMENT_JOB_POD=$(kubectl -n litmus get pods -l job-name=$JOB_NAME -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-            echo "Experiment job pod: $EXPERIMENT_JOB_POD"
-            
-            if [ -n "$EXPERIMENT_JOB_POD" ]; then
-              echo ""
-              echo "7. Experiment Job Pod Logs (this is where probes execute):"
-              kubectl -n litmus logs $EXPERIMENT_JOB_POD 2>/dev/null || echo "Could not get experiment job pod logs"
-              
-              echo ""
-              echo "8. Experiment Job Pod Status:"
-              kubectl -n litmus get pod $EXPERIMENT_JOB_POD -o yaml 2>/dev/null | grep -A 40 "status:" || echo "Could not get job pod status"
-            else
-              echo "Experiment job pod not found"
-              echo "All pods in litmus namespace:"
-              kubectl -n litmus get pods -o wide
-            fi
-          else
-            echo "Could not determine job name"
-          fi
           
           echo ""
           echo "=== Test Summary ==="

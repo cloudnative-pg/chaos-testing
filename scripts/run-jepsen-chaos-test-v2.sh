@@ -1107,17 +1107,6 @@ EOF
         PASSED_PROBES=$(echo "$PROBE_STATUS" | jq '[.[] | select(.status.verdict == "Passed")] | length' 2>/dev/null || echo "0")
         
         log "Overall probe status: ${PASSED_PROBES}/${TOTAL_PROBES} probes passed"
-        
-        # DEBUG: Show detailed probe information
-        if [ "$TOTAL_PROBES" -gt 0 ] && [ "$PASSED_PROBES" -eq 0 ]; then
-            warn "All probes failed - showing detailed probe status:"
-            echo "$PROBE_STATUS" | jq -r '.[] | "  Probe: \(.name) | Mode: \(.mode) | Type: \(.type) | Verdict: \(.status.verdict // "N/A") | Description: \(.status.description // "No description")"' 2>/dev/null || echo "  Could not parse probe details"
-            
-            # Show full probe status for debugging
-            log ""
-            log "Full probe status JSON:"
-            echo "$PROBE_STATUS" | jq '.' 2>/dev/null || echo "$PROBE_STATUS"
-        fi
     else
         warn "ChaosResult not found - probes may not have executed"
     fi
