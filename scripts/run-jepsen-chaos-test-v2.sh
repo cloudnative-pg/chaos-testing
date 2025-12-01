@@ -1050,24 +1050,42 @@ EOF
     log ""
     
     # ==========================================
-    # Step 9.5/10: Wait for EOT Probes
+    # Step 9.5/10: Wait for Chaos Experiment to Complete
     # ==========================================
     
-    log "Step 9.5/10: Waiting for End-of-Test (EOT) probes to complete..."
-    
-    EOT_WAIT_TIME=180  # 3 minutes to allow experiment to fully complete
+    log "Step 9.5/10: Waiting for chaos experiment to complete..."
     
     log "Chaos duration was ${TEST_DURATION}s"
-    log "Allowing ${EOT_WAIT_TIME}s for EOT probes (initialDelay + retries)"
-    log "This prevents 'N/A' probe verdicts by not deleting chaos engine too early"
+    log "Waiting for experiment to finish (includes EOT probes and finalization)"
     
-    # Show countdown
-    for ((i=EOT_WAIT_TIME; i>0; i-=10)); do
-        if [ $i -le $EOT_WAIT_TIME ] && [ $((i % 30)) -eq 0 ]; then
-            log "  Waiting for EOT probes... ${i}s remaining"
-        fi
+    # Wait for ChaosResult to show completion
+    CHAOS_WAIT_TIMEOUT=600  # 10 minutes max (chaos + probes + finalization)
+    ELAPSED=0
+    EXPERIMENT_PHASE="Running"
+    
+    while [ "$EXPERIMENT_PHASE" != "Completed" ] && [ $ELAPSED -lt $CHAOS_WAIT_TIMEOUT ]; do
         sleep 10
+        ELAPSED=$((ELAPSED + 10))
+        
+        # Get experiment phase from ChaosResult
+        EXPERIMENT_PHASE=$(kubectl -n ${LITMUS_NAMESPACE} get chaosresult ${CHAOS_ENGINE_NAME}-pod-delete \
+            -o jsonpath='{.status.experimentStatus.phase}' 2>/dev/null || echo "Running")
+        
+        # Show progress every 30 seconds
+        if [ $((ELAPSED % 30)) -eq 0 ]; then
+            log "  Waiting for experiment... ${ELAPSED}s elapsed (phase: ${EXPERIMENT_PHASE})"
+        fi
     done
+    
+    if [ "$EXPERIMENT_PHASE" = "Completed" ]; then
+        success "Chaos experiment completed after ${ELAPSED}s"
+    else
+        warn "Experiment phase: ${EXPERIMENT_PHASE} after ${ELAPSED}s - checking results anyway"
+    fi
+    
+    # Give ChaosResult a few more seconds to fully update
+    log "Waiting 10s for ChaosResult to finalize..."
+    sleep 10
     
     # Check probe statuses
     if kubectl get chaosresult ${CHAOS_ENGINE_NAME}-pod-delete -n ${LITMUS_NAMESPACE} &>/dev/null; then
