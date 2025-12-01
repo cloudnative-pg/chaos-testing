@@ -8,6 +8,9 @@ on:
         required: false
         default: '300'
         type: string
+  push:
+    branches:
+      - dev-2
   schedule:
     # Run daily at 2 AM UTC
     - cron: '0 2 * * *'
