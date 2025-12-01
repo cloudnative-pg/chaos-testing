@@ -8,6 +8,8 @@ jobs:
     name: Test Complete Stack + Prometheus
     runs-on: ubuntu-latest
     timeout-minutes: 55
+    permissions:
+      contents: read
     
     steps:
       - name: Checkout repository
