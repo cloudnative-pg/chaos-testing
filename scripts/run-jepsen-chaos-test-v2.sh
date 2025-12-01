@@ -1059,7 +1059,7 @@ EOF
     log "Waiting for experiment to finish (includes EOT probes and finalization)"
     
     # Wait for ChaosResult to show completion
-    CHAOS_WAIT_TIMEOUT=600  # 10 minutes max (chaos + probes + finalization)
+    CHAOS_WAIT_TIMEOUT=420  # 7 minutes (300s chaos + 120s for EOT probes + finalization)
     ELAPSED=0
     EXPERIMENT_PHASE="Running"
     

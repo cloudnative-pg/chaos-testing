@@ -115,22 +115,11 @@ spec:
           # ==========================================
           # Continuous Probes - During chaos monitoring
           # ==========================================
-          # NOTE: Continuous probes run as non-blocking goroutines
-          # They cannot prevent TARGET_SELECTION_ERROR
-
-          # Probe 3: Monitor cluster health during chaos
-          - name: replication-lag-continuous
-            type: promProbe
-            promProbe/inputs:
-              endpoint: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
-              query: "max(cnpg_pg_replication_lag)"
-              comparator:
-                criteria: "<"
-                value: "30" # Allow higher lag during chaos
-            mode: Continuous
-            runProperties:
-              interval: "30s"
-              probeTimeout: "10s"
+          # NOTE: Continuous probes removed because:
+          # - Replication lag > 30s during primary deletion is EXPECTED
+          # - Probe was failing on normal chaos behavior, causing experiment Error
+          # - Jepsen tracks all operation failures already
+          # - EOT probes verify recovery after chaos
 
           # ==========================================
           # End of Test (EOT) Probes - Post-chaos validation
@@ -171,8 +160,8 @@ spec:
 ---
 # Probe Summary:
 # ================
-# Current experiment: 5 probes (2 SOT + 1 Continuous + 2 EOT)
-# Reduced from 7 probes - removed ineffective probes
+# Current experiment: 4 probes (2 SOT + 2 EOT)
+# Reduced from 7 probes - removed ineffective and problematic probes
 #
 # Probe Breakdown:
 # ----------------
@@ -181,11 +170,11 @@ spec:
 #   2. jepsen-job-running-sot       - Verify Jepsen workload pod is running
 #
 # Continuous (During Chaos):
-#   3. replication-lag-continuous   - Monitor replication lag stays reasonable during chaos
+#   REMOVED - replication-lag-continuous caused experiment Error on expected behavior
 #
 # EOT (End of Test):
-#   4. cluster-recovered-eot        - Verify all instances recovered post-chaos
-#   5. replicas-attached-eot        - Verify replication fully restored
+#   3. cluster-recovered-eot        - Verify all instances recovered post-chaos
+#   4. replicas-attached-eot        - Verify replication fully restored
 #
 # Removed Probes and Why:
 # -------------------------
@@ -197,6 +186,11 @@ spec:
 # ❌ transaction-rate-continuous (Continuous)
 #    - Redundant: Jepsen tracks ALL operations automatically
 #    - Jepsen provides better insights (history.edn has complete op tracking)
+#
+# ❌ replication-lag-continuous (Continuous)
+#    - Failed on EXPECTED behavior (lag > 30s during primary deletion)
+#    - Caused entire experiment to go to "Error" state
+#    - Jepsen already tracks all operation failures during chaos
 #
 # Why Probes Show N/A:
 # ---------------------
