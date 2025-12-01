@@ -8,9 +8,6 @@ on:
         required: false
         default: '300'
         type: string
-  push:
-    branches:
-      - dev-2
   schedule:
     # Run daily at 2 AM UTC
     - cron: '0 2 * * *'
@@ -191,6 +188,33 @@ jobs:
           echo ""
           echo "5. ChaosResult Full Details:"
           kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete -o yaml 2>/dev/null || echo "Could not get chaos result"
+          
+          # Get the actual experiment job pod (not the runner)
+          echo ""
+          echo "6. Chaos Experiment Job Pod:"
+          JOB_NAME=$(kubectl -n litmus get chaosengine cnpg-jepsen-chaos -o jsonpath='{.status.experiments[0].experimentPod}' 2>/dev/null | sed 's/-[^-]*$//')
+          echo "Job name: $JOB_NAME"
+          
+          if [ -n "$JOB_NAME" ]; then
+            EXPERIMENT_JOB_POD=$(kubectl -n litmus get pods -l job-name=$JOB_NAME -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+            echo "Experiment job pod: $EXPERIMENT_JOB_POD"
+            
+            if [ -n "$EXPERIMENT_JOB_POD" ]; then
+              echo ""
+              echo "7. Experiment Job Pod Logs (this is where probes execute):"
+              kubectl -n litmus logs $EXPERIMENT_JOB_POD 2>/dev/null || echo "Could not get experiment job pod logs"
+              
+              echo ""
+              echo "8. Experiment Job Pod Status:"
+              kubectl -n litmus get pod $EXPERIMENT_JOB_POD -o yaml 2>/dev/null | grep -A 40 "status:" || echo "Could not get job pod status"
+            else
+              echo "Experiment job pod not found"
+              echo "All pods in litmus namespace:"
+              kubectl -n litmus get pods -o wide
+            fi
+          else
+            echo "Could not determine job name"
+          fi
           
           echo ""
           echo "=== Test Summary ==="
