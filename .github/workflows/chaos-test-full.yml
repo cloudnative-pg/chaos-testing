@@ -120,7 +120,7 @@ jobs:
             logs/jepsen-chaos-*/results/*.png
             logs/jepsen-chaos-*/chaos-results/chaosresult.yaml
             logs/jepsen-chaos-*/test.log
-          retention-days: 30
+          retention-days: 7
           if-no-files-found: warn
       
       - name: Display final status
