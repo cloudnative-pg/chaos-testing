@@ -26,7 +26,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
       
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
@@ -54,7 +54,6 @@ jobs:
           
           echo "Verifying Prometheus is ready..."
           
-          # Quick check that Prometheus service exists
           kubectl -n monitoring get svc prometheus-kube-prometheus-prometheus >/dev/null 2>&1 || {
             echo "❌ Prometheus service not found"
             exit 1
@@ -74,8 +73,7 @@ jobs:
           echo "Chaos duration: ${{ inputs.chaos_duration || '300' }} seconds"
           echo ""
           
-          # Run the chaos test script
-          ./scripts/run-jepsen-chaos-test-v2.sh pg-eu app ${{ inputs.chaos_duration || '300' }}
+          ./scripts/run-jepsen-chaos-test.sh pg-eu app ${{ inputs.chaos_duration || '300' }}
       
       - name: Collect test results
         if: always()
@@ -84,7 +82,6 @@ jobs:
           
           echo "=== Collecting Test Results ==="
           
-          # Find the latest results directory
           RESULTS_DIR=$(ls -td logs/jepsen-chaos-* 2>/dev/null | head -1 || echo "")
           
           if [ -z "$RESULTS_DIR" ]; then
@@ -95,7 +92,6 @@ jobs:
           echo "Results directory: $RESULTS_DIR"
           echo ""
           
-          # Parse Jepsen verdict
           echo "=== Jepsen Verdict ==="
           if [ -f "$RESULTS_DIR/results/results.edn" ]; then
             grep ':valid?' "$RESULTS_DIR/results/results.edn" || echo "No verdict found"
@@ -114,7 +110,7 @@ jobs:
       
       - name: Upload test artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: chaos-test-results-${{ github.run_number }}
           path: |

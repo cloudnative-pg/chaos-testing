@@ -262,7 +262,7 @@ Import the official dashboard JSON from <https://github.com/cloudnative-pg/grafa
 ### 6. Run the Jepsen chaos test
 
 ```bash
-./scripts/run-jepsen-chaos-test-v2.sh pg-eu app 600
+./scripts/run-jepsen-chaos-test.sh pg-eu app 600
 ```
 
 This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (primary pod delete), monitors logs, collects Elle results, and cleans up transient resources **automatically** (no manual exit needed - the script handles everything).
