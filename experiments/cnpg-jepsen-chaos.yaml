@@ -86,7 +86,7 @@ spec:
           - name: cluster-healthy-sot
             type: promProbe
             promProbe/inputs:
-              endpoint: "http://prometheus.prometheus-operator.svc:9090"
+              endpoint: "http://prometheus-operated.prometheus-operator.svc:9090"
               query: "sum(cnpg_collector_up{cluster='pg-eu'})"
               comparator:
                 criteria: ">="
@@ -129,7 +129,7 @@ spec:
           - name: cluster-recovered-eot
             type: promProbe
             promProbe/inputs:
-              endpoint: "http://prometheus.prometheus-operator.svc:9090"
+              endpoint: "http://prometheus-operated.prometheus-operator.svc:9090"
               query: "sum(cnpg_collector_up{cluster='pg-eu'})"
               comparator:
                 criteria: ">="
@@ -145,7 +145,7 @@ spec:
           - name: replicas-attached-eot
             type: promProbe
             promProbe/inputs:
-              endpoint: "http://prometheus.prometheus-operator.svc:9090"
+              endpoint: "http://prometheus-operated.prometheus-operator.svc:9090"
               query: "max(cnpg_pg_replication_streaming_replicas{job='pg-eu'})"
               comparator:
                 criteria: ">="
