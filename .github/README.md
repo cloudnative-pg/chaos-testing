@@ -152,20 +152,16 @@ Installs Litmus Chaos operator, experiments, and RBAC configuration.
 
 ### `setup-prometheus`
 
-Installs Prometheus monitoring (without Grafana) and configures CNPG ServiceMonitor.
+Installs Prometheus and Grafana monitoring using cnpg-playground's built-in monitoring solution.
 
 **What it installs**:
-- kube-prometheus-stack (Grafana and AlertManager disabled)
-- Prometheus Operator
-- kube-state-metrics
-- CNPG ServiceMonitor for PostgreSQL metrics
-
-**Resource limits** (optimized for CI):
-- Prometheus: 512Mi request, 1Gi limit
-- Prometheus Operator: 128Mi request, 256Mi limit
+- Prometheus Operator (via cnpg-playground monitoring/setup.sh)
+- Grafana Operator with official CNPG dashboard
+- CNPG PodMonitor for PostgreSQL metrics
 
 **Requirements**:
-- `monitoring/podmonitor-pg-eu.yaml` - CNPG ServiceMonitor configuration
+- `monitoring/podmonitor-pg-eu.yaml` - CNPG PodMonitor configuration
+- cnpg-playground must be cloned to `/tmp/cnpg-playground` (done by setup-kind action)
 
 **Usage**:
 ```yaml

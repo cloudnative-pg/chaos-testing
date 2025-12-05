@@ -1,7 +1,7 @@
-apiVersion: v1
-kind: Service
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
 metadata:
-  name: pg-eu-metrics
+  name: pg-eu
   namespace: default
   labels:
     app.kubernetes.io/name: cnpg-metrics
@@ -9,31 +9,10 @@ metadata:
     cnpg.io/cluster: pg-eu
 spec:
   selector:
-    cnpg.io/cluster: pg-eu
-    cnpg.io/podRole: instance
-  ports:
-    - name: metrics
-      port: 9187
-      targetPort: metrics
-      protocol: TCP
----
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: pg-eu
-  namespace: monitoring
-  labels:
-    app.kubernetes.io/part-of: cnpg-monitoring
-    release: prometheus
-spec:
-  namespaceSelector:
-    matchNames:
-      - default
-  selector:
     matchLabels:
-      app.kubernetes.io/name: cnpg-metrics
       cnpg.io/cluster: pg-eu
-  endpoints:
-    - port: metrics
-      interval: 30s
-      scrapeTimeout: 10s
+      cnpg.io/podRole: instance
+  podMetricsEndpoints:
+  - port: metrics
+    interval: 30s
+    scrapeTimeout: 10s

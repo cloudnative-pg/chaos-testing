@@ -78,7 +78,7 @@ readonly JEPSEN_MEMORY_LIMIT="1Gi"
 readonly JEPSEN_CPU_REQUEST="500m"
 readonly JEPSEN_CPU_LIMIT="1000m"
 readonly LITMUS_NAMESPACE="${LITMUS_NAMESPACE:-litmus}"
-readonly PROMETHEUS_NAMESPACE="${PROMETHEUS_NAMESPACE:-monitoring}"
+readonly PROMETHEUS_NAMESPACE="${PROMETHEUS_NAMESPACE:-prometheus-operator}"
 
 # ==========================================
 # Parse and Validate Arguments
@@ -276,9 +276,9 @@ check_resource "secret" "${SECRET_NAME}" "${NAMESPACE}" \
     "Credentials secret '${SECRET_NAME}' not found. CNPG should auto-generate this during cluster bootstrap." || exit 2
 
 # Check Prometheus (required for probes) - non-fatal
-if ! check_resource "service" "prometheus-kube-prometheus-prometheus" "${PROMETHEUS_NAMESPACE}"; then
+if ! check_resource "service" "prometheus" "${PROMETHEUS_NAMESPACE}"; then
     warn "Prometheus not found in namespace '${PROMETHEUS_NAMESPACE}'. Probes may fail."
-    warn "Install with: helm install prometheus prometheus-community/kube-prometheus-stack -n ${PROMETHEUS_NAMESPACE}"
+    warn "Install with: cd /path/to/cnpg-playground && ./monitoring/setup.sh eu"
 fi
 
 success "Pre-flight checks passed"

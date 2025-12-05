@@ -215,47 +215,48 @@ kubectl -n litmus delete chaosengine cnpg-jepsen-chaos-noprobes
 
 ### 5. Configure monitoring (Prometheus + Grafana)
 
-If you already have Prometheus/Grafana installed, skip to the PodMonitor step. Otherwise, install **kube-prometheus-stack**:
+The **cnpg-playground** provides a built-in monitoring stack with Prometheus and Grafana. From the cnpg-playground directory:
 
 ```bash
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-   --namespace monitoring --create-namespace
+cd /path/to/cnpg-playground
+./monitoring/setup.sh eu
 ```
 
-Expose the CNPG metrics port (9187) through a dedicated Service + ServiceMonitor bundle, then verify Prometheus scrapes it. Manual management keeps you aligned with the operator deprecation of `spec.monitoring.enablePodMonitor` and dodges the PodMonitor regression in kube-prometheus-stack v79 where CNPG pods only advertise the `postgresql` and `status` ports:
+This script installs:
+- **Prometheus Operator** (in `prometheus-operator` namespace)
+- **Grafana Operator** with the official CloudNativePG dashboard (in `grafana` namespace)
+- Auto-configured for the `kind-k8s-eu` cluster
+
+Once installation completes, create the PodMonitor to expose CNPG metrics:
 
 ```bash
-# Create monitoring namespace if it doesn't exist
-kubectl create namespace monitoring 2>/dev/null || true
-# Clean out the legacy PodMonitor if you created one earlier
-kubectl -n monitoring delete podmonitor pg-eu --ignore-not-found
-# Apply the Service + ServiceMonitor bundle (same file path as before)
+# Switch back to chaos-testing directory
+cd /path/to/chaos-testing
+
+# Apply CNPG PodMonitor
 kubectl apply -f monitoring/podmonitor-pg-eu.yaml
-kubectl -n default get svc pg-eu-metrics
-kubectl -n monitoring get servicemonitors pg-eu
 
-# The ServiceMonitor ships with label release=prometheus so the kube-prometheus-stack
-# Prometheus instance (which matches on that label) will actually scrape it.
+# Verify PodMonitor
+kubectl get podmonitor pg-eu -o wide
 
-# Verify Prometheus health and targets (look for job "serviceMonitor/monitoring/pg-eu/0")
-kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090 &
-curl -s "http://localhost:9090/api/v1/targets?state=active" | jq '.data.activeTargets[] | {labels, health}'
+# Verify Prometheus is scraping CNPG metrics
+kubectl -n prometheus-operator port-forward svc/prometheus 9090:9090 &
 curl -s "http://localhost:9090/api/v1/query?query=sum(cnpg_collector_up{cluster=\"pg-eu\"})"
-
-# Access Grafana dashboard (optional)
-kubectl -n monitoring port-forward svc/prometheus-grafana 3000:80
-
-# Once that’s running, open http://localhost:3000 with:
-#   Username: admin
-#   Password: (decode the generated secret)
-#     kubectl -n monitoring get secret prometheus-grafana \
-#       -o jsonpath='{.data.admin-password}' | base64 -d && echo
 ```
 
-Import the official dashboard JSON from <https://github.com/cloudnative-pg/grafana-dashboards/blob/main/charts/cluster/grafana-dashboard.json> (Dashboards → New → Import). Reapply the Service/ServiceMonitor manifest whenever you recreate the `pg-eu` cluster so Prometheus resumes scraping immediately, and extend `monitoring/podmonitor-pg-eu.yaml` (e.g., TLS, interval, labels) to match your environment instead of relying on deprecated automatic generation.
+**Access Grafana dashboard:**
 
-> **Tip:** Once the ServiceMonitor is in place the CNPG metrics ship with `namespace="default"`, so the Grafana dashboard's `operator_namespace` dropdown will populate with `default`. Pick it (or set the variable's default to `default`) to avoid the "No data" empty-state.
+```bash
+kubectl -n grafana port-forward svc/grafana-service 3000:3000
+
+# Open http://localhost:3000 with:
+#   Username: admin
+#   Password: admin (you'll be prompted to change on first login)
+```
+
+The official CloudNativePG dashboard is pre-configured and available at: **Home → Dashboards → grafana → CloudNativePG**
+
+> **Note:** If you recreate the `pg-eu` cluster, reapply the PodMonitor so Prometheus resumes scraping: `kubectl apply -f monitoring/podmonitor-pg-eu.yaml`
 
 > ✅ **Required before section 6 (when probes are enabled):** Complete this monitoring setup so the Prometheus probes defined in `experiments/cnpg-jepsen-chaos.yaml` can succeed.
 
@@ -282,7 +283,7 @@ This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (p
 **Script knobs:**
 
 - `LITMUS_NAMESPACE` (default `litmus`) – set if you installed Litmus in a different namespace.
-- `PROMETHEUS_NAMESPACE` (default `monitoring`) – used to auto-detect the Prometheus service backing Litmus probes.
+- `PROMETHEUS_NAMESPACE` (default `prometheus-operator`) – used to auto-detect the Prometheus service backing Litmus probes.
 - `JEPSEN_IMAGE` is pinned to `ardentperf/jepsenpg@sha256:4a3644d9484de3144ad2ea300e1b66568b53d85a87bf12aa64b00661a82311ac` for reproducibility. Update this digest only after verifying upstream releases.
 
 ### 7. Inspect test results

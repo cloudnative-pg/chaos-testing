@@ -54,7 +54,7 @@ jobs:
           
           echo "Verifying Prometheus is ready..."
           
-          kubectl -n monitoring get svc prometheus-kube-prometheus-prometheus >/dev/null 2>&1 || {
+          kubectl -n prometheus-operator get svc prometheus >/dev/null 2>&1 || {
             echo "❌ Prometheus service not found"
             exit 1
           }
@@ -65,7 +65,7 @@ jobs:
         run: |
           export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
           export LITMUS_NAMESPACE=litmus
-          export PROMETHEUS_NAMESPACE=monitoring
+          export PROMETHEUS_NAMESPACE=prometheus-operator
           
           echo "=== Starting Jepsen + Chaos Test ==="
           echo "Cluster: pg-eu"

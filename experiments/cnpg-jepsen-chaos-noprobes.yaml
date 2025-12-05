@@ -1,12 +1,15 @@
 ---
-# CNPG Jepsen + Litmus Chaos Integration (No-Probes Variant)
+# CNPG Jepsen + Litmus Chaos Integration (No Probes Version)
 #
+# This is the probe-free variant of cnpg-jepsen-chaos.yaml for environments
 # Use this ChaosEngine when Prometheus/Grafana is not yet installed.
-# It is identical to `cnpg-jepsen-chaos.yaml` except that all probes
+#
+# The Prometheus probes that validate cluster health before/after chaos
 # are removed, so verdicts will not depend on Prometheus availability.
 #
-# After installing monitoring (README Section 5), switch to the
-# probe-enabled ChaosEngine for full observability.
+# After installing monitoring (cnpg-playground ./monitoring/setup.sh), switch to the
+# probe-enabled version: experiments/cnpg-jepsen-chaos.yaml
+# for full observability.
 apiVersion: litmuschaos.io/v1alpha1
 kind: ChaosEngine
 metadata:
