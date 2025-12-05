@@ -276,7 +276,7 @@ check_resource "secret" "${SECRET_NAME}" "${NAMESPACE}" \
     "Credentials secret '${SECRET_NAME}' not found. CNPG should auto-generate this during cluster bootstrap." || exit 2
 
 # Check Prometheus (required for probes) - non-fatal
-if ! check_resource "service" "prometheus" "${PROMETHEUS_NAMESPACE}"; then
+if ! check_resource "service" "prometheus-operated" "${PROMETHEUS_NAMESPACE}"; then
     warn "Prometheus not found in namespace '${PROMETHEUS_NAMESPACE}'. Probes may fail."
     warn "Install with: cd /path/to/cnpg-playground && ./monitoring/setup.sh eu"
 fi
