@@ -260,6 +260,30 @@ The official CloudNativePG dashboard is pre-configured and available at: **Home 
 
 > ✅ **Required before section 6 (when probes are enabled):** Complete this monitoring setup so the Prometheus probes defined in `experiments/cnpg-jepsen-chaos.yaml` can succeed.
 
+#### Dependency on cnpg-playground
+
+This project relies on cnpg-playground's monitoring implementation. Be aware of the following dependencies:
+
+**What we depend on**:
+- Script: `/path/to/cnpg-playground/monitoring/setup.sh`
+- Namespace: `prometheus-operator`
+- Service: `prometheus-operated` (created by Prometheus Operator for CR named `prometheus`)
+- Port: `9090` (Prometheus default)
+
+**If cnpg-playground monitoring changes**, you may need to update:
+- Prometheus endpoint in `experiments/cnpg-jepsen-chaos.yaml` (lines 89, 132, 148)
+- Service check in `.github/workflows/chaos-test-full.yml` (line 57)
+- Service check in `scripts/run-jepsen-chaos-test.sh` (line 279)
+
+**Troubleshooting**: If probes fail with connection errors:
+```bash
+# Verify the Prometheus service exists
+kubectl -n prometheus-operator get svc
+
+# If service name changed, update all probe endpoints
+# in experiments/cnpg-jepsen-chaos.yaml
+```
+
 ### 6. Run the Jepsen chaos test
 
 ```bash
