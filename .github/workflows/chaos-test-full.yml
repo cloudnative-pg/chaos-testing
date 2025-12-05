@@ -54,7 +54,7 @@ jobs:
           
           echo "Verifying Prometheus is ready..."
           
-          kubectl -n prometheus-operator get svc prometheus >/dev/null 2>&1 || {
+          kubectl -n prometheus-operator get svc prometheus-operated >/dev/null 2>&1 || {
             echo "❌ Prometheus service not found"
             exit 1
           }
