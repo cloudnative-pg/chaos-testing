@@ -30,20 +30,6 @@ runs:
         
         echo "✅ CNPG operator is ready"
     
-    - name: Apply CNPG operator configuration
-      shell: bash
-      run: |
-        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
-        
-        echo "Applying CNPG operator config..."
-        kubectl apply -f clusters/cnpg-config.yaml
-        
-        echo "Restarting controller manager to apply config..."
-        kubectl rollout restart -n cnpg-system deployment cnpg-controller-manager
-        kubectl rollout status deployment -n cnpg-system cnpg-controller-manager --timeout=3m
-        
-        echo "✅ CNPG operator configured"
-    
     - name: Wait for CNPG webhook to be ready
       shell: bash
       run: |
