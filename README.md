@@ -63,34 +63,46 @@ git clone https://github.com/cloudnative-pg/chaos-testing.git
 cd chaos-testing
 ```
 
-All subsequent commands reference files in this repository (experiments, scripts, monitoring configs). Keep this terminal window open.
+All subsequent commands reference files in this repository (experiments, scripts, monitoring configs).
 
 ### 1. Bootstrap the CNPG Playground
 
 The upstream documentation provides detailed instructions for prerequisites and networking. Follow the setup instructions here: <https://github.com/cloudnative-pg/cnpg-playground#usage>.
 
-**Open a new terminal** and run:
+Deploy the `cnpg-playground` project in a parallel folder to `chaos-testing`:
 
 ```bash
+cd ..
 git clone https://github.com/cloudnative-pg/cnpg-playground.git
 cd cnpg-playground
 ./scripts/setup.sh eu         # creates kind-k8s-eu cluster
-./scripts/info.sh             # displays contexts and access information
-export KUBECONFIG=$PWD/k8s/kube-config.yaml
+```
+
+Follow the instructions on the screen. In particular, make sure that you:
+
+1. export the `KUBECONFIG` variable, as described
+2. set the correct context for kubectl
+
+For example:
+
+```
+export KUBECONFIG=<PATH_TO_CNPG_PLAYGROUND>/k8s/kube-config.yaml
 kubectl config use-context kind-k8s-eu
+```
+
+If unsure, type:
+
+```
+./scripts/info.sh             # displays contexts and access information
 ```
 
 ### 2. Install CloudNativePG and Create the PostgreSQL Cluster
 
 With the Kind cluster running, install the operator using the **kubectl cnpg plugin** as recommended in the [CloudNativePG Installation & Upgrades guide](https://cloudnative-pg.io/documentation/current/installation_upgrade/). This approach ensures you get the latest stable operator version:
 
-**In the cnpg-playground terminal:**
+**In the `cnpg-playground` folder:**
 
 ```bash
-# Re-export the playground kubeconfig if you opened a new shell
-export KUBECONFIG=$PWD/k8s/kube-config.yaml
-kubectl config use-context kind-k8s-eu
-
 # Install the latest operator version using the kubectl cnpg plugin
 kubectl cnpg install generate --control-plane | \
   kubectl --context kind-k8s-eu apply -f - --server-side
@@ -100,16 +112,10 @@ kubectl --context kind-k8s-eu rollout status deployment \
   -n cnpg-system cnpg-controller-manager
 ```
 
-Apply the operator config map:
+**In the `chaos-testing` folder:**
 
 ```bash
-kubectl apply -f clusters/cnpg-config.yaml
-kubectl rollout restart -n cnpg-system deployment cnpg-controller-manager
-```
-
-**Switch back to the chaos-testing terminal:**
-
-```bash
+cd ../chaos-testing
 # Create the pg-eu PostgreSQL cluster for chaos testing
 kubectl apply -f clusters/pg-eu-cluster.yaml
 
@@ -218,7 +224,7 @@ kubectl -n litmus delete chaosengine cnpg-jepsen-chaos-noprobes
 The **cnpg-playground** provides a built-in monitoring stack with Prometheus and Grafana. From the cnpg-playground directory:
 
 ```bash
-cd /path/to/cnpg-playground
+cd ../cnpg-playground
 ./monitoring/setup.sh eu
 ```
 
@@ -231,7 +237,7 @@ Once installation completes, create the PodMonitor to expose CNPG metrics:
 
 ```bash
 # Switch back to chaos-testing directory
-cd /path/to/chaos-testing
+cd ../chaos-testing
 
 # Apply CNPG PodMonitor
 kubectl apply -f monitoring/podmonitor-pg-eu.yaml

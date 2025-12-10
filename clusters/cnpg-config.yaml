@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: cnpg-controller-manager-config
-  namespace: cnpg-system
-data:
-  # Configure the `TCP_USER_TIMEOUT` for standby servers to 5 seconds
-  STANDBY_TCP_USER_TIMEOUT: '5000'
