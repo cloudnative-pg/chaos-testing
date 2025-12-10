@@ -34,6 +34,7 @@ Production-ready Jepsen and Litmus chaos automation for CloudNativePG (CNPG) clu
   kubectl cnpg version
   ```
   > **Alternative installation methods:**
+  >
   > - For Debian/Ubuntu: Download `.deb` from [releases page](https://github.com/cloudnative-pg/cloudnative-pg/releases)
   > - For RHEL/Fedora: Download `.rpm` from [releases page](https://github.com/cloudnative-pg/cloudnative-pg/releases)
   > - See [official installation docs](https://cloudnative-pg.io/documentation/current/kubectl-plugin) for all methods
@@ -229,6 +230,7 @@ cd ../cnpg-playground
 ```
 
 This script installs:
+
 - **Prometheus Operator** (in `prometheus-operator` namespace)
 - **Grafana Operator** with the official CloudNativePG dashboard (in `grafana` namespace)
 - Auto-configured for the `kind-k8s-eu` cluster
@@ -246,7 +248,7 @@ kubectl apply -f monitoring/podmonitor-pg-eu.yaml
 kubectl get podmonitor pg-eu -o wide
 
 # Verify Prometheus is scraping CNPG metrics
-kubectl -n prometheus-operator port-forward svc/prometheus 9090:9090 &
+kubectl -n prometheus-operator port-forward svc/prometheus-operated 9090:9090 &
 curl -s --data-urlencode 'query=sum(cnpg_collector_up{cluster="pg-eu"})' "http://localhost:9090/api/v1/query"
 ```
 
@@ -271,17 +273,20 @@ The official CloudNativePG dashboard is pre-configured and available at: **Home 
 This project relies on cnpg-playground's monitoring implementation. Be aware of the following dependencies:
 
 **What we depend on**:
+
 - Script: `/path/to/cnpg-playground/monitoring/setup.sh`
 - Namespace: `prometheus-operator`
 - Service: `prometheus-operated` (created by Prometheus Operator for CR named `prometheus`)
 - Port: `9090` (Prometheus default)
 
 **If cnpg-playground monitoring changes**, you may need to update:
+
 - Prometheus endpoint in `experiments/cnpg-jepsen-chaos.yaml` (lines 89, 132, 148)
 - Service check in `.github/workflows/chaos-test-full.yml` (line 57)
 - Service check in `scripts/run-jepsen-chaos-test.sh` (line 279)
 
 **Troubleshooting**: If probes fail with connection errors:
+
 ```bash
 # Verify the Prometheus service exists
 kubectl -n prometheus-operator get svc
