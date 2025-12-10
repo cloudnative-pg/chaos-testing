@@ -368,7 +368,7 @@ This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (p
 ## 🔗 References & more docs
 
 - CNPG Playground: https://github.com/cloudnative-pg/cnpg-playground
-- CloudNativePG Installation & Upgrades (v1.27): https://cloudnative-pg.io/documentation/1.27/installation_upgrade/
+- CloudNativePG Installation & Upgrades: https://cloudnative-pg.io/documentation/current/installation_upgrade/
 - Litmus Helm chart: https://github.com/litmuschaos/litmus-helm/
 - kube-prometheus-stack: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
 - CNPG Grafana dashboards: https://github.com/cloudnative-pg/grafana-dashboards
