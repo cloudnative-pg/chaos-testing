@@ -301,7 +301,7 @@ kubectl -n prometheus-operator get svc
 ./scripts/run-jepsen-chaos-test.sh pg-eu app 600
 ```
 
-This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (primary pod delete), monitors logs, collects Elle results, and cleans up transient resources **automatically** (no manual exit needed - the script handles everything).
+This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (primary pod delete), monitors logs, collects results, and cleans up transient resources **automatically** (no manual exit needed - the script handles everything).
 
 **Prerequisites before running the script:**
 
@@ -327,12 +327,6 @@ This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (p
 - Quick validation commands:
 
   ```bash
-  # Check Jepsen consistency verdict
-  grep ":valid?" logs/jepsen-chaos-*/results/results.edn
-
-  # Check operation statistics
-  tail -20 logs/jepsen-chaos-*/results/STATISTICS.txt
-
   # Check Litmus chaos verdict (note: use -n litmus, not -n default)
   kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete \
      -o jsonpath='{.status.experimentStatus.verdict}'
@@ -345,7 +339,7 @@ This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (p
      -o jsonpath='{.status.probeStatuses}' | jq
   ```
 
-- Archive `results/results.edn`, `history.edn`, and `chaos-results/chaosresult.yaml` for analysis or reporting.
+- Archive `history.edn` and `chaos-results/chaosresult.yaml` for analysis or reporting.
 
 ---
 
@@ -353,16 +347,11 @@ This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (p
 
 - Each run creates a folder under `logs/jepsen-chaos-<timestamp>/`.
 - Key files:
-  - `results/results.edn` → Elle verdict (`:valid? true|false`).
-  - `results/STATISTICS.txt` → `:ok/:fail` counts.
+  - `results/history.edn` → Jepsen operation history.
   - `results/chaos-results/chaosresult.yaml` → Litmus verdict + probe output.
 - Quick checks:
 
   ```bash
-  # Jepsen results
-  grep ":valid?" logs/jepsen-chaos-*/results/results.edn
-  tail -20 logs/jepsen-chaos-*/results/STATISTICS.txt
-
   # Chaos results (note: namespace is 'litmus' by default)
   kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete \
      -o jsonpath='{.status.experimentStatus.verdict}'
@@ -407,7 +396,6 @@ bash scripts/monitor-cnpg-pods.sh pg-eu default litmus kind-k8s-eu
 - **CNPG Documentation:** <https://cloudnative-pg.io/documentation/>
 - **Litmus Documentation:** <https://docs.litmuschaos.io/>
 - **Jepsen Documentation:** <https://jepsen.io/>
-- **Elle Consistency Checker:** <https://github.com/jepsen-io/elle>
 - **PostgreSQL High Availability:** <https://www.postgresql.org/docs/current/high-availability.html>
 
 ---

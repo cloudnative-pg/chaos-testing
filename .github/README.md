@@ -1,403 +1,232 @@
-# CloudNativePG Chaos Testing with Jepsen
+# GitHub Actions for CloudNativePG Chaos Testing
 
-![CloudNativePG Logo](logo/cloudnativepg.png)
+This directory contains GitHub Actions workflows and reusable composite actions for automated chaos testing of CloudNativePG clusters.
 
-Production-ready Jepsen and Litmus chaos automation for CloudNativePG (CNPG) clusters.
+## Workflows
 
----
+### `chaos-test-full.yml`
 
-## 🚀 Quick Start
+Comprehensive chaos testing workflow that validates PostgreSQL cluster resilience under failure conditions.
 
-**Want to run chaos testing immediately?** Follow these streamlined steps:
+**What it does**:
+- Provisions a Kind cluster using cnpg-playground
+- Installs CloudNativePG operator and PostgreSQL cluster
+- Deploys Litmus Chaos and Prometheus monitoring
+- Runs Jepsen consistency tests with pod-delete chaos injection
+- **Validates resilience** - fails the build if chaos tests don't pass
+- Collects comprehensive artifacts including cluster state dumps on failure
 
-0. **Clone this repo** → Get the chaos experiments and scripts (section 0)
-1. **Setup cluster** → Bootstrap CNPG Playground (section 1)
-2. **Install CNPG** → Deploy operator + sample cluster (section 2)
-3. **Install Litmus** → Install operator, experiments, and RBAC (sections 3, 3.5, 3.6)
-4. **Smoke-test chaos** → Run the quick pod-delete check without monitoring (section 4)
-5. **Add monitoring** → Install Prometheus for probe validation (section 5; required before section 6 with probes enabled)
-6. **Run Jepsen** → Full consistency testing layered on chaos (section 6)
+**Triggers**:
+- **Manual**: `workflow_dispatch` with configurable chaos duration (default: 300s)
+- **Automatic**: Pull requests to `main` branch (skips documentation-only changes)
+- **Scheduled**: Weekly on Sundays at 13:00 UTC
 
-**First time users:** Use section 4 as a smoke test without Prometheus, then return to section 5 to install monitoring before running the Jepsen workflow in section 6.
-
----
-
-## ✅ Prerequisites
-
-- Linux/macOS shell with `bash`, `git`, `curl`, `jq`, and internet access.
-- Container + Kubernetes tooling: Docker **or** Podman, the [Kind CLI](https://kind.sigs.k8s.io/) tool, `kubectl`, `helm`, the [`kubectl cnpg` plugin](https://cloudnative-pg.io/documentation/current/kubectl-plugin/) binary, and the [`cmctl` utility](https://cert-manager.io/docs/reference/cmctl/) for cert-manager.
-- Install the CNPG plugin using kubectl krew (recommended):
-  ```bash
-  # Install or update to the latest version
-  kubectl krew update
-  kubectl krew install cnpg || kubectl krew upgrade cnpg
-  kubectl cnpg version
-  ```
-  > **Alternative installation methods:**
-  >
-  > - For Debian/Ubuntu: Download `.deb` from [releases page](https://github.com/cloudnative-pg/cloudnative-pg/releases)
-  > - For RHEL/Fedora: Download `.rpm` from [releases page](https://github.com/cloudnative-pg/cloudnative-pg/releases)
-  > - See [official installation docs](https://cloudnative-pg.io/documentation/current/kubectl-plugin) for all methods
-- Optional but recommended: `kubectx`, `stern`, `kubectl-view-secret` (see the [CNPG Playground README](https://github.com/cloudnative-pg/cnpg-playground#prerequisites) for a complete list).
-- **Disk Space:** Minimum **30GB** free disk space recommended:
-  - Kind cluster nodes: ~5GB
-  - Container images: ~5GB (first run with image pull)
-  - Prometheus/MongoDB storage: ~10GB
-  - Jepsen results + logs: ~5GB
-  - Buffer for growth: ~5GB
-- Sufficient local resources for a multi-node Kind cluster (≈8 CPUs / 12 GB RAM) and permission to run port-forwards.
-
-Once the tooling is present, everything else is managed via repository scripts and Helm charts.
+**Quality Gates**:
+- Litmus chaos experiment must pass
+- Jepsen consistency validation must pass (`:valid? true`)
+- Workflow fails if either check fails
 
 ---
 
-## ⚡ Setup and Configuration
+## Reusable Composite Actions
 
-> Follow these sections in order; each references the authoritative upstream documentation to keep this README concise.
+### `free-disk-space`
 
-### 0. Clone the Chaos Testing Repository
+Removes unnecessary pre-installed software from GitHub runners to free up ~40GB of disk space.
 
-**First, clone this repository to access the chaos experiments and scripts:**
+**What it removes**:
+- .NET SDK (~15-20 GB)
+- Android SDK (~12 GB)
+- Haskell tools (~5-8 GB)
+- Large tool caches (CodeQL, Go, Python, Ruby, Node)
+- Unused browsers
 
-```bash
-git clone https://github.com/cloudnative-pg/chaos-testing.git
-cd chaos-testing
+**What it preserves**:
+- Docker
+- kubectl
+- Kind
+- Helm
+- jq
+
+**Usage**:
+```yaml
+- name: Free disk space
+  uses: ./.github/actions/free-disk-space
 ```
-
-All subsequent commands reference files in this repository (experiments, scripts, monitoring configs).
-
-### 1. Bootstrap the CNPG Playground
-
-The upstream documentation provides detailed instructions for prerequisites and networking. Follow the setup instructions here: <https://github.com/cloudnative-pg/cnpg-playground#usage>.
-
-Deploy the `cnpg-playground` project in a parallel folder to `chaos-testing`:
-
-```bash
-cd ..
-git clone https://github.com/cloudnative-pg/cnpg-playground.git
-cd cnpg-playground
-./scripts/setup.sh eu         # creates kind-k8s-eu cluster
-```
-
-Follow the instructions on the screen. In particular, make sure that you:
-
-1. export the `KUBECONFIG` variable, as described
-2. set the correct context for kubectl
-
-For example:
-
-```
-export KUBECONFIG=<PATH_TO_CNPG_PLAYGROUND>/k8s/kube-config.yaml
-kubectl config use-context kind-k8s-eu
-```
-
-If unsure, type:
-
-```
-./scripts/info.sh             # displays contexts and access information
-```
-
-### 2. Install CloudNativePG and Create the PostgreSQL Cluster
-
-With the Kind cluster running, install the operator using the **kubectl cnpg plugin** as recommended in the [CloudNativePG Installation & Upgrades guide](https://cloudnative-pg.io/documentation/current/installation_upgrade/). This approach ensures you get the latest stable operator version:
-
-**In the `cnpg-playground` folder:**
-
-```bash
-# Install the latest operator version using the kubectl cnpg plugin
-kubectl cnpg install generate --control-plane | \
-  kubectl --context kind-k8s-eu apply -f - --server-side
-
-# Verify the controller rollout
-kubectl --context kind-k8s-eu rollout status deployment \
-  -n cnpg-system cnpg-controller-manager
-```
-
-**In the `chaos-testing` folder:**
-
-```bash
-cd ../chaos-testing
-# Create the pg-eu PostgreSQL cluster for chaos testing
-kubectl apply -f clusters/pg-eu-cluster.yaml
-
-# Verify cluster is ready (this will watch until healthy)
-kubectl get cluster pg-eu -w  # Wait until status shows "Cluster in healthy state"
-# Press Ctrl+C when you see: pg-eu   3       3   ready   XX m
-```
-
-### 3. Install Litmus Chaos
-
-Litmus 3.x separates the operator (via `litmus-core`) from the ChaosCenter UI (via `litmus` chart). Install both, then add the experiment definitions and RBAC:
-
-```bash
-# Add Litmus Helm repository
-helm repo add litmuschaos https://litmuschaos.github.io/litmus-helm/
-helm repo update
-
-# Install litmus-core (operator + CRDs)
-helm upgrade --install litmus-core litmuschaos/litmus-core \
-  --namespace litmus --create-namespace \
-  --wait --timeout 10m
-
-# Verify CRDs are installed
-kubectl get crd chaosengines.litmuschaos.io chaosexperiments.litmuschaos.io chaosresults.litmuschaos.io
-
-# Verify operator is running
-kubectl -n litmus get deploy litmus
-kubectl -n litmus wait --for=condition=Available deployment/litmus --timeout=5m
-```
-
-### 3.5. Install ChaosExperiment Definitions
-
-The ChaosEngine requires ChaosExperiment resources to exist before it can run. Install the `pod-delete` experiment:
-
-```bash
-# Install from Chaos Hub (has namespace: default hardcoded, so override it)
-kubectl apply --namespace=litmus -f https://hub.litmuschaos.io/api/chaos/master?file=faults/kubernetes/pod-delete/fault.yaml
-
-# Verify experiment is installed
-kubectl -n litmus get chaosexperiments
-# Should show: pod-delete
-```
-
-### 3.6. Configure RBAC for Chaos Experiments
-
-Apply the RBAC configuration and verify the service account has correct permissions:
-
-```bash
-# Apply RBAC (ServiceAccount, ClusterRole, ClusterRoleBinding)
-kubectl apply -f litmus-rbac.yaml
-
-# Verify the ServiceAccount exists in litmus namespace
-kubectl -n litmus get serviceaccount litmus-admin
-
-# Verify the ClusterRoleBinding points to correct namespace
-kubectl get clusterrolebinding litmus-admin -o jsonpath='{.subjects[0].namespace}'
-# Should output: litmus (not default)
-
-# Test permissions (optional)
-kubectl auth can-i delete pods --as=system:serviceaccount:litmus:litmus-admin -n default
-# Should output: yes
-```
-
-> **Important:** The `litmus-rbac.yaml` ClusterRoleBinding must reference `namespace: litmus` in the subjects section. If you see errors like `"litmus-admin" cannot get resource "chaosengines"`, verify the namespace matches where the ServiceAccount exists.
-
-### 4. (Optional) Test Chaos Without Monitoring
-
-Before setting up the full monitoring stack, you can verify chaos mechanics work independently:
-
-```bash
-# Apply the probe-free chaos engine (no Prometheus dependency)
-kubectl apply -f experiments/cnpg-jepsen-chaos-noprobes.yaml
-
-# Watch the chaos runner pod start (refreshes every 2s)
-# Press Ctrl+C once you see the runner pod appear
-watch -n2 'kubectl -n litmus get pods | grep cnpg-jepsen-chaos-noprobes-runner'
-
-# Monitor CNPG pod deletions in real-time
-bash scripts/monitor-cnpg-pods.sh pg-eu default litmus kind-k8s-eu
-
-# Wait for chaos runner pod to be created, then check logs
-kubectl -n litmus wait --for=condition=ready pod -l chaos-runner-name=cnpg-jepsen-chaos-noprobes --timeout=60s && \
-runner_pod=$(kubectl -n litmus get pods -l chaos-runner-name=cnpg-jepsen-chaos-noprobes -o jsonpath='{.items[0].metadata.name}') && \
-kubectl -n litmus logs -f "$runner_pod"
-
-# After completion, check the result (engine name differs)
-kubectl -n litmus get chaosresult cnpg-jepsen-chaos-noprobes-pod-delete -o jsonpath='{.status.experimentStatus.verdict}'
-# Should output: Pass (if probes are disabled) or Error (if Prometheus probes enabled but Prometheus not installed)
-
-# Clean up for next test
-kubectl -n litmus delete chaosengine cnpg-jepsen-chaos-noprobes
-```
-
-**What to observe:**
-
-- The runner pod starts and creates an experiment pod (`pod-delete-xxxxx`)
-- CNPG primary pods are deleted every 60 seconds
-- CNPG automatically promotes a replica to primary after each deletion
-- Deleted pods are recreated by the StatefulSet controller
-- The experiment runs for 10 minutes (TOTAL_CHAOS_DURATION=600)
-
-> **Note:** Keep using `experiments/cnpg-jepsen-chaos-noprobes.yaml` until Section 5 installs Prometheus/Grafana. Once monitoring is online, switch to `experiments/cnpg-jepsen-chaos.yaml` (probes enabled) for full observability.
-
-### 5. Configure monitoring (Prometheus + Grafana)
-
-The **cnpg-playground** provides a built-in monitoring stack with Prometheus and Grafana. From the cnpg-playground directory:
-
-```bash
-cd ../cnpg-playground
-./monitoring/setup.sh eu
-```
-
-This script installs:
-
-- **Prometheus Operator** (in `prometheus-operator` namespace)
-- **Grafana Operator** with the official CloudNativePG dashboard (in `grafana` namespace)
-- Auto-configured for the `kind-k8s-eu` cluster
-
-Once installation completes, create the PodMonitor to expose CNPG metrics:
-
-```bash
-# Switch back to chaos-testing directory
-cd ../chaos-testing
-
-# Apply CNPG PodMonitor
-kubectl apply -f monitoring/podmonitor-pg-eu.yaml
-
-# Verify PodMonitor
-kubectl get podmonitor pg-eu -o wide
-
-# Verify Prometheus is scraping CNPG metrics
-kubectl -n prometheus-operator port-forward svc/prometheus-operated 9090:9090 &
-curl -s --data-urlencode 'query=sum(cnpg_collector_up{cluster="pg-eu"})' "http://localhost:9090/api/v1/query"
-```
-
-**Access Grafana dashboard:**
-
-```bash
-kubectl -n grafana port-forward svc/grafana-service 3000:3000
-
-# Open http://localhost:3000 with:
-#   Username: admin
-#   Password: admin (you'll be prompted to change on first login)
-```
-
-The official CloudNativePG dashboard is pre-configured and available at: **Home → Dashboards → grafana → CloudNativePG**
-
-> **Note:** If you recreate the `pg-eu` cluster, reapply the PodMonitor so Prometheus resumes scraping: `kubectl apply -f monitoring/podmonitor-pg-eu.yaml`
-
-> ✅ **Required before section 6 (when probes are enabled):** Complete this monitoring setup so the Prometheus probes defined in `experiments/cnpg-jepsen-chaos.yaml` can succeed.
-
-#### Dependency on cnpg-playground
-
-This project relies on cnpg-playground's monitoring implementation. Be aware of the following dependencies:
-
-**What we depend on**:
-
-- Script: `/path/to/cnpg-playground/monitoring/setup.sh`
-- Namespace: `prometheus-operator`
-- Service: `prometheus-operated` (created by Prometheus Operator for CR named `prometheus`)
-- Port: `9090` (Prometheus default)
-
-**If cnpg-playground monitoring changes**, you may need to update:
-
-- Prometheus endpoint in `experiments/cnpg-jepsen-chaos.yaml` (lines 89, 132, 148)
-- Service check in `.github/workflows/chaos-test-full.yml` (line 57)
-- Service check in `scripts/run-jepsen-chaos-test.sh` (line 279)
-
-**Troubleshooting**: If probes fail with connection errors:
-
-```bash
-# Verify the Prometheus service exists
-kubectl -n prometheus-operator get svc
-
-# If service name changed, update all probe endpoints
-# in experiments/cnpg-jepsen-chaos.yaml
-```
-
-### 6. Run the Jepsen chaos test
-
-```bash
-./scripts/run-jepsen-chaos-test.sh pg-eu app 600
-```
-
-This script deploys Jepsen (`jepsenpg` image), applies the Litmus ChaosEngine (primary pod delete), monitors logs, collects results, and cleans up transient resources **automatically** (no manual exit needed - the script handles everything).
-
-**Prerequisites before running the script:**
-
-- Section 5 completed (Prometheus/Grafana running) so probes succeed.
-- Chaos workflow validated (run `experiments/cnpg-jepsen-chaos.yaml` once manually if you need to confirm Litmus + CNPG wiring).
-- Docker registry access to pull `ardentperf/jepsenpg` image (or pre-pulled into cluster).
-- `kubectl` context pointing to the playground cluster with sufficient resources.
-- **Increase max open files limit** if needed (required for Jepsen on some systems):
-  ```bash
-  ulimit -n 65536
-  ```
-  > This may need to be configured in your container runtime or Kind cluster configuration if running in a containerized environment.
-
-**Script knobs:**
-
-- `LITMUS_NAMESPACE` (default `litmus`) – set if you installed Litmus in a different namespace.
-- `PROMETHEUS_NAMESPACE` (default `prometheus-operator`) – used to auto-detect the Prometheus service backing Litmus probes.
-- `JEPSEN_IMAGE` is pinned to `ardentperf/jepsenpg@sha256:4a3644d9484de3144ad2ea300e1b66568b53d85a87bf12aa64b00661a82311ac` for reproducibility. Update this digest only after verifying upstream releases.
-
-### 7. Inspect test results
-
-- All test results are stored under `logs/jepsen-chaos-<timestamp>/`.
-- Quick validation commands:
-
-  ```bash
-  # Check Litmus chaos verdict (note: use -n litmus, not -n default)
-  kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete \
-     -o jsonpath='{.status.experimentStatus.verdict}'
-
-  # View full chaos result details
-  kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete -o yaml
-
-  # Check probe results (if Prometheus was installed)
-  kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete \
-     -o jsonpath='{.status.probeStatuses}' | jq
-  ```
-
-- Archive `history.edn` and `chaos-results/chaosresult.yaml` for analysis or reporting.
 
 ---
 
-## 📦 Results & logs
+### `setup-tools`
 
-- Each run creates a folder under `logs/jepsen-chaos-<timestamp>/`.
-- Key files:
-  - `results/history.edn` → Jepsen operation history.
-  - `results/chaos-results/chaosresult.yaml` → Litmus verdict + probe output.
-- Quick checks:
+Installs and upgrades chaos testing tools to latest stable versions.
 
-  ```bash
-  # Chaos results (note: namespace is 'litmus' by default)
-  kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete \
-     -o jsonpath='{.status.experimentStatus.verdict}'
-  ```
+**Tools installed/upgraded**:
+- kubectl (latest stable)
+- Kind (latest release)
+- Helm (latest via official installer)
+- krew (kubectl plugin manager)
+- kubectl-cnpg plugin (via krew)
 
----
-
-## 🔗 References & more docs
-
-- CNPG Playground: https://github.com/cloudnative-pg/cnpg-playground
-- CloudNativePG Installation & Upgrades: https://cloudnative-pg.io/documentation/current/installation_upgrade/
-- Litmus Helm chart: https://github.com/litmuschaos/litmus-helm/
-- kube-prometheus-stack: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
-- CNPG Grafana dashboards: https://github.com/cloudnative-pg/grafana-dashboards
-- License: Apache 2.0 (see `LICENSE`).
-
----
-
-## 🔧 Monitoring and Observability Tools
-
-### Real-time Monitoring Script
-
-Watch CNPG pods, chaos engines, and cluster events during experiments:
-
-```bash
-# Monitor pod deletions and failovers in real-time
-bash scripts/monitor-cnpg-pods.sh <cluster-name> <cnpg-namespace> <chaos-namespace> <kube-context>
-
-# Example
-bash scripts/monitor-cnpg-pods.sh pg-eu default litmus kind-k8s-eu
+**Usage**:
+```yaml
+- name: Setup chaos testing tools
+  uses: ./.github/actions/setup-tools
 ```
 
-**What it shows:**
+---
 
-- CNPG pod status with role labels (primary/replica)
-- Active ChaosEngines in the chaos namespace
-- Recent Kubernetes events (pod deletions, promotions, etc.)
-- Updates every 2 seconds
+### `setup-kind`
 
-## 📚 Additional Resources
+Creates a Kind cluster using the proven cnpg-playground configuration.
 
-- **CNPG Documentation:** <https://cloudnative-pg.io/documentation/>
-- **Litmus Documentation:** <https://docs.litmuschaos.io/>
-- **Jepsen Documentation:** <https://jepsen.io/>
-- **PostgreSQL High Availability:** <https://www.postgresql.org/docs/current/high-availability.html>
+**Features**:
+- Multi-node cluster with PostgreSQL-labeled nodes
+- Configured for HA testing
+- Proven configuration from cnpg-playground
+
+**Inputs**:
+- `region` (optional): Region name for the cluster (default: `eu`)
+
+**Outputs**:
+- `kubeconfig`: Path to kubeconfig file
+- `cluster-name`: Name of the created cluster
+
+**Usage**:
+```yaml
+- name: Create Kind cluster
+  uses: ./.github/actions/setup-kind
+  with:
+    region: eu
+```
 
 ---
 
-Follow the sections above to execute chaos tests. Review the logs for analysis, and consult the `/archive` directory for additional documentation if needed.
+### `setup-cnpg`
+
+Installs CloudNativePG operator and deploys a PostgreSQL cluster.
+
+**What it does**:
+1. Installs CNPG operator using `kubectl cnpg install generate` (recommended method)
+2. Waits for operator deployment to be ready
+3. Applies CNPG operator configuration
+4. Waits for webhook to be fully initialized
+5. Deploys PostgreSQL cluster
+6. Waits for cluster to be ready with health checks
+
+**Requirements**:
+- `clusters/cnpg-config.yaml` - CNPG operator configuration
+- `clusters/pg-eu-cluster.yaml` - PostgreSQL cluster definition
+
+**Usage**:
+```yaml
+- name: Setup CloudNativePG
+  uses: ./.github/actions/setup-cnpg
+```
+
+---
+
+### `setup-litmus`
+
+Installs Litmus Chaos operator, experiments, and RBAC configuration.
+
+**What it installs**:
+- litmus-core operator (via Helm)
+- pod-delete chaos experiment
+- Litmus RBAC (ServiceAccount, ClusterRole, ClusterRoleBinding)
+
+**Verification**:
+- Checks all CRDs are installed
+- Verifies operator is ready
+- Validates RBAC permissions
+
+**Requirements**:
+- `litmus-rbac.yaml` - RBAC configuration file
+
+**Usage**:
+```yaml
+- name: Setup Litmus Chaos
+  uses: ./.github/actions/setup-litmus
+```
+
+---
+
+### `setup-prometheus`
+
+Installs Prometheus and Grafana monitoring using cnpg-playground's built-in monitoring solution.
+
+**What it installs**:
+- Prometheus Operator (via cnpg-playground monitoring/setup.sh)
+- Grafana Operator with official CNPG dashboard
+- CNPG PodMonitor for PostgreSQL metrics
+
+**Requirements**:
+- `monitoring/podmonitor-pg-eu.yaml` - CNPG PodMonitor configuration
+- cnpg-playground must be cloned to `/tmp/cnpg-playground` (done by setup-kind action)
+
+**Usage**:
+```yaml
+- name: Setup Prometheus
+  uses: ./.github/actions/setup-prometheus
+```
+
+---
+
+## Artifacts
+
+Each workflow run produces the following artifacts (retained for 30 days):
+
+**Jepsen Results**:
+- `results.edn` - Test results in EDN format
+- `history.edn` - Operation history
+- `STATISTICS.txt` - Test statistics
+- `*.png` - Visualization graphs
+
+**Litmus Results**:
+- `chaosresult.yaml` - Chaos experiment results
+
+**Logs**:
+- `test.log` - Complete test execution log
+
+**Cluster State** (on failure only):
+- `cluster-state-dump.yaml` - Complete cluster state including pods, events, and operator logs
+
+---
+
+## Usage in Other Workflows
+
+You can reuse these actions in your own workflows:
+
+```yaml
+name: My Chaos Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      
+      - name: Free disk space
+        uses: ./.github/actions/free-disk-space
+      
+      - name: Setup tools
+        uses: ./.github/actions/setup-tools
+      
+      - name: Create cluster
+        uses: ./.github/actions/setup-kind
+        with:
+          region: us
+      
+      - name: Setup CNPG
+        uses: ./.github/actions/setup-cnpg
+      
+      # Your custom chaos testing steps here
+```
+
+---

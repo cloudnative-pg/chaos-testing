@@ -514,14 +514,6 @@ spec:
           echo "Test completed with exit code: ${EXIT_CODE}"
           echo "========================================="
           
-          # Display summary
-          if [[ -f store/latest/results.edn ]]; then
-            echo ""
-            echo "Test Summary:"
-            echo "-------------"
-            grep -E ":valid\?|:failure-types|:anomaly-types" store/latest/results.edn || true
-          fi
-          
           exit ${EXIT_CODE}
         
         resources:
@@ -770,8 +762,6 @@ START_TIME=$(date +%s)
 LAST_LOG_CHECK=0
 LAST_STATUS_CHECK=0
 
-# Wait for test workload to complete (not Elle analysis!)
-# Look for "Run complete, writing" in logs which happens BEFORE Elle analysis
 log "Waiting for test workload to complete..."
 
 while true; do
@@ -783,7 +773,7 @@ while true; do
         # Check if workload completed (log says "Run complete")
         if kubectl logs ${POD_NAME} -n ${NAMESPACE} 2>/dev/null | grep -q "Run complete, writing"; then
             success "Test workload completed (${ELAPSED}s)"
-            log "Operations finished, results written (Elle analysis may still be running)"
+            log "Operations finished, results written"
             break
         fi
         LAST_LOG_CHECK=$CURRENT_TIME
@@ -892,9 +882,6 @@ log "Extracting operation history and logs..."
 kubectl exec pvc-extractor-${TIMESTAMP} -- cat /data/current/history.txt > "${RESULT_DIR}/history.txt" 2>/dev/null || true
 kubectl exec pvc-extractor-${TIMESTAMP} -- cat /data/current/history.edn > "${RESULT_DIR}/history.edn" 2>/dev/null || true
 kubectl exec pvc-extractor-${TIMESTAMP} -- cat /data/current/jepsen.log > "${RESULT_DIR}/jepsen.log" 2>/dev/null || true
-
-# Try to get results.edn if Elle finished (unlikely but possible)
-kubectl exec pvc-extractor-${TIMESTAMP} -- cat /data/current/results.edn > "${RESULT_DIR}/results.edn" 2>/dev/null || true
 
 # Extract PNG files (use kubectl cp for binary files)
 log "Extracting PNG graphs..."
@@ -1202,23 +1189,6 @@ EOF
     success "Chaos results saved to: ${RESULT_DIR}/chaos-results/"
     log ""
     
-    # Check for Elle results (unlikely to exist)
-    if [[ -f "${RESULT_DIR}/results.edn" ]] && [[ -s "${RESULT_DIR}/results.edn" ]]; then
-        log ""
-        log "⚠️  Elle analysis completed! Checking for consistency violations..."
-        
-        if grep -q ":valid? true" "${RESULT_DIR}/results.edn"; then
-            success "✓ No consistency anomalies detected"
-        else
-            warn "✗ Consistency anomalies detected - review results.edn"
-        fi
-    else
-        log ""
-        warn "Note: results.edn not available (Elle analysis still running in background)"
-        warn "      This is NORMAL - Elle can take 30+ minutes to complete"
-        warn "      Operation statistics above are sufficient for analysis"
-    fi
-    
     log ""
     success "========================================="
     success "Test Complete!"
@@ -1234,8 +1204,6 @@ EOF
     log "1. Review ${RESULT_DIR}/STATISTICS.txt for operation success rates"
     log "2. Review ${RESULT_DIR}/chaos-results/SUMMARY.txt for probe results"
     log "3. Compare with other test runs (async vs sync replication)"
-    log "4. Monitor Elle analysis (results.edn) for eventual consistency verdict"
-    log "   Run './scripts/extract-jepsen-history.sh ${POD_NAME}' later to check if Elle finished"
     
     exit 0
 else
