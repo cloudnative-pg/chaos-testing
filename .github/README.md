@@ -176,7 +176,6 @@ Installs Prometheus and Grafana monitoring using cnpg-playground's built-in moni
 Each workflow run produces the following artifacts (retained for 30 days):
 
 **Jepsen Results**:
-- `results.edn` - Test results in EDN format
 - `history.edn` - Operation history
 - `STATISTICS.txt` - Test statistics
 - `*.png` - Visualization graphs
