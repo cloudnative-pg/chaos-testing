@@ -247,7 +247,7 @@ kubectl get podmonitor pg-eu -o wide
 
 # Verify Prometheus is scraping CNPG metrics
 kubectl -n prometheus-operator port-forward svc/prometheus 9090:9090 &
-curl -s "http://localhost:9090/api/v1/query?query=sum(cnpg_collector_up{cluster=\"pg-eu\"})"
+curl -s --data-urlencode 'query=sum(cnpg_collector_up{cluster="pg-eu"})' "http://localhost:9090/api/v1/query"
 ```
 
 **Access Grafana dashboard:**
