@@ -1,0 +1,92 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-eu
+  namespace: default
+spec:
+  instances: 3 # 1 primary + 2 replicas for high availability
+  # Use a "minimal" image - if needed we can use standard or system as a last resort
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie
+
+  # Deploy on Postgres nodes
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: required
+    nodeSelector:
+      node-role.kubernetes.io/postgres: ""
+    tolerations:
+    - key: node-role.kubernetes.io/postgres
+      operator: Exists
+      effect: NoSchedule
+
+  probes:
+    # Startup (max 10 minutes, replicas need to be streaming with lag <32MB)
+    startup:
+      type: streaming
+      maximumLag: 32Mi
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 120
+    # Liveness (max 30 seconds of consecutive failure)
+    liveness:
+      periodSeconds: 3
+      timeoutSeconds: 3
+      failureThreshold: 10
+    # Readiness (max 1 minute of consecutive failure, replicas need to be streaming with lag <32MB)
+    readiness:
+      type: streaming
+      maximumLag: 32Mi
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 12
+
+  # PostgreSQL configuration
+  postgresql:
+    parameters:
+      shared_memory_type: 'sysv'
+      dynamic_shared_memory_type: 'sysv'
+      max_connections: "200"
+      shared_buffers: "256MB"
+      effective_cache_size: "1GB"
+      hot_standby_feedback: 'on'
+      log_checkpoints: 'on'
+      log_lock_waits: 'on'
+      log_min_duration_statement: '1000'
+      log_statement: 'ddl'
+      log_temp_files: '1024'
+      pg_stat_statements.max: '10000'
+      pg_stat_statements.track: 'all'
+      checkpoint_timeout: '600s'
+      checkpoint_completion_target: '0.9'
+
+  bootstrap:
+    initdb:
+      # Use data checksums (enabled by default in 18)
+      dataChecksums: true
+      # Larger WAL segment size than default
+      walSegmentSize: 32
+
+  # Storage configuration
+  storage:
+    size: 1Gi
+    storageClass: standard
+
+  # Resources
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "1"
+    limits:
+      memory: "512Mi"
+      cpu: "1"
+
+  env:
+    - name: TZ
+      value: "UTC"
+
+  # TODO: remove this section - from 1.28
+  monitoring:
+    enablePodMonitor: false
+    tls:
+      enabled: false

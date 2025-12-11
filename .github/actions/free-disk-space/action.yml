@@ -1,0 +1,103 @@
+name: 'Free Disk Space'
+description: 'Remove unnecessary pre-installed software to free up disk space (preserves Docker, kubectl, Kind, Helm)'
+branding:
+  icon: 'hard-drive'
+  color: 'blue'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Display disk usage before cleanup
+      shell: bash
+      run: |
+        echo "=== Disk Usage Before Cleanup ==="
+        df -h /
+        echo ""
+        echo "=== Pre-installed tools we'll keep ==="
+        echo "Docker: $(docker --version)"
+        echo "kubectl: $(kubectl version --client --short 2>/dev/null || echo 'will install')"
+        echo "Kind: $(kind version 2>/dev/null || echo 'will install')"
+        echo "Helm: $(helm version --short 2>/dev/null || echo 'will install')"
+        echo "jq: $(jq --version)"
+    
+    - name: Remove .NET SDK and tools
+      shell: bash
+      run: |
+        echo "Removing .NET SDK (~15-20 GB)..."
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/hostedtoolcache/dotnet
+    
+    - name: Remove Android SDK
+      shell: bash
+      run: |
+        echo "Removing Android SDK (~12 GB)..."
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf ${ANDROID_HOME:-/usr/local/lib/android/sdk}
+        sudo rm -rf ${ANDROID_NDK_HOME:-/usr/local/lib/android/sdk/ndk}
+    
+    - name: Remove Haskell tools
+      shell: bash
+      run: |
+        echo "Removing Haskell/GHC (~5-8 GB)..."
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/.ghcup
+        sudo rm -rf ~/.ghcup
+    
+    - name: Remove large cached tools
+      shell: bash
+      run: |
+        echo "Removing large tool caches..."
+        # Remove CodeQL (keep for security scanning if needed, but ~5 GB)
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        
+        # Remove cached Go versions (we'll use latest if needed)
+        sudo rm -rf /opt/hostedtoolcache/go
+        
+        # Remove cached Python versions (keep system Python)
+        sudo rm -rf /opt/hostedtoolcache/Python
+        
+        # Remove cached Ruby versions
+        sudo rm -rf /opt/hostedtoolcache/Ruby
+        
+        # Remove cached Node versions (keep system Node)
+        sudo rm -rf /opt/hostedtoolcache/node
+    
+    - name: Remove unused browsers and drivers
+      shell: bash
+      run: |
+        echo "Removing browser test tools (not needed for chaos testing)..."
+        # Keep Chrome for potential debugging, remove others
+        sudo rm -rf /usr/share/microsoft-edge
+        sudo rm -rf /opt/microsoft/msedge
+        sudo apt-get remove -y firefox chromium-browser 2>/dev/null || true
+    
+    - name: Clean package manager caches
+      shell: bash
+      run: |
+        echo "Cleaning package manager caches..."
+        sudo apt-get clean
+        sudo rm -rf /var/lib/apt/lists/*
+    
+    - name: Clean Docker build cache (preserve images)
+      shell: bash
+      run: |
+        echo "Cleaning Docker build cache..."
+        # Only remove build cache, not images (we need Docker functional)
+        docker builder prune --all --force || true
+    
+    - name: Display disk usage after cleanup
+      shell: bash
+      run: |
+        echo ""
+        echo "=== Disk Usage After Cleanup ==="
+        df -h /
+        echo ""
+        echo "=== Verify essential tools still available ==="
+        docker --version
+        echo "Docker: ✅"
+        
+        # These will be installed by setup-tools action
+        kubectl version --client --short 2>/dev/null && echo "kubectl: ✅ (pre-installed)" || echo "kubectl: will be installed"
+        kind version 2>/dev/null && echo "Kind: ✅ (pre-installed)" || echo "Kind: will be installed"  
+        helm version --short 2>/dev/null && echo "Helm: ✅ (pre-installed)" || echo "Helm: will be installed"
+        jq --version && echo "jq: ✅"

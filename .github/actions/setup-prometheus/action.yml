@@ -1,0 +1,56 @@
+name: 'Setup Prometheus Monitoring'
+description: 'Install Prometheus and Grafana via cnpg-playground monitoring'
+branding:
+  icon: 'activity'
+  color: 'red'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup monitoring via cnpg-playground
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        cd /tmp/cnpg-playground
+        
+        echo "Installing Prometheus and Grafana via cnpg-playground..."
+        ./monitoring/setup.sh eu
+        
+        echo "✅ Monitoring stack deployed"
+        
+    - name: Wait for Prometheus to be ready
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Waiting for Prometheus pods to be ready..."
+        kubectl -n prometheus-operator wait --for=condition=Ready pod \
+          -l app.kubernetes.io/name=prometheus --timeout=5m
+        
+        echo "Prometheus pods:"
+        kubectl -n prometheus-operator get pods
+        
+        echo "✅ Prometheus is ready"
+        
+    - name: Wait for Grafana to be ready
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Waiting for Grafana service to be created..."
+        kubectl -n grafana wait --for=jsonpath='{.status.loadBalancer}' service/grafana-service --timeout=3m || true
+        
+        echo "✅ Grafana is ready"
+        
+    - name: Apply CNPG PodMonitor
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Applying CNPG PodMonitor..."
+        kubectl apply -f monitoring/podmonitor-pg-eu.yaml
+        
+        echo "Verifying PodMonitor:"
+        kubectl get podmonitor pg-eu -o wide
+        
+        echo "✅ CNPG PodMonitor configured"

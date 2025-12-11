@@ -1,0 +1,92 @@
+name: 'Setup CloudNativePG Operator and Cluster'
+description: 'Install CNPG operator and deploy PostgreSQL cluster (README Section 2)'
+branding:
+  icon: 'database'
+  color: 'green'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install CNPG operator using kubectl cnpg plugin
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        export PATH="${HOME}/.krew/bin:$PATH"
+        
+        echo "Installing CNPG operator using kubectl cnpg plugin..."
+        kubectl cnpg install generate --control-plane | \
+          kubectl --context kind-k8s-eu apply -f - --server-side
+        
+        echo "✅ CNPG operator manifests applied"
+    
+    - name: Wait for CNPG operator to be ready
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Waiting for CNPG controller manager deployment..."
+        kubectl --context kind-k8s-eu rollout status deployment \
+          -n cnpg-system cnpg-controller-manager --timeout=5m
+        
+        echo "✅ CNPG operator is ready"
+    
+    - name: Wait for CNPG webhook to be ready
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Waiting for CNPG webhook service to be ready..."
+        echo "This ensures the mutating webhook is available before creating clusters..."
+        
+        # Wait for deployment to be fully ready (handles pod restarts correctly)
+        kubectl -n cnpg-system rollout status deployment cnpg-controller-manager --timeout=3m
+        
+        # Give the webhook a few more seconds to fully initialize
+        sleep 10
+        
+        echo "✅ CNPG webhook is ready"
+    
+    - name: Deploy PostgreSQL cluster
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Deploying PostgreSQL cluster pg-eu..."
+        kubectl apply -f clusters/pg-eu-cluster.yaml
+        
+        echo "✅ PostgreSQL cluster manifest applied"
+    
+    - name: Wait for PostgreSQL cluster to be ready
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo "Waiting for PostgreSQL cluster to be ready..."
+        echo "This may take 3-5 minutes for all pods to start..."
+        
+        # Wait for cluster to be ready
+        kubectl wait --for=condition=Ready cluster/pg-eu --timeout=10m
+        
+        echo ""
+        echo "=== Cluster Status ==="
+        kubectl get cluster pg-eu
+        
+        echo ""
+        echo "=== PostgreSQL Pods ==="
+        kubectl get pods -l cnpg.io/cluster=pg-eu
+        
+        echo ""
+        echo "=== Verify cluster health ==="
+        READY_INSTANCES=$(kubectl get cluster pg-eu -o jsonpath='{.status.readyInstances}')
+        TOTAL_INSTANCES=$(kubectl get cluster pg-eu -o jsonpath='{.status.instances}')
+        
+        echo "Ready instances: ${READY_INSTANCES}/${TOTAL_INSTANCES}"
+        
+        if [ "$READY_INSTANCES" -eq "$TOTAL_INSTANCES" ]; then
+          echo "✅ All PostgreSQL instances are ready!"
+        else
+          echo "⚠️  Warning: Not all instances are ready yet"
+        fi
+        
+        echo ""
+        echo "✅ PostgreSQL cluster pg-eu is ready for chaos testing!"

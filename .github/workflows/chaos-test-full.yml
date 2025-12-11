@@ -1,0 +1,132 @@
+name: Chaos Test - Full Jepsen + Litmus
+
+on:
+  workflow_dispatch:
+    inputs:
+      chaos_duration:
+        description: 'Chaos duration in seconds'
+        required: false
+        default: '300'
+        type: string
+  pull_request:
+    branches:
+      - main
+      - dev-2
+  schedule:
+    # Run weekly on Sunday at 2 PM Italy time
+    - cron: "0 13 * * 0"
+
+jobs:
+  chaos-test:
+    name: Run Jepsen + Chaos Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Free disk space
+        uses: ./.github/actions/free-disk-space
+
+      - name: Setup chaos testing tools
+        uses: ./.github/actions/setup-tools
+
+      - name: Setup Kind cluster via CNPG Playground
+        uses: ./.github/actions/setup-kind
+        with:
+          region: eu
+
+      - name: Setup CloudNativePG operator and cluster
+        uses: ./.github/actions/setup-cnpg
+
+      - name: Setup Litmus Chaos
+        uses: ./.github/actions/setup-litmus
+
+      - name: Setup Prometheus Monitoring
+        uses: ./.github/actions/setup-prometheus
+
+      - name: Verify Prometheus is ready for chaos test
+        run: |
+          export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+
+          echo "Verifying Prometheus is ready..."
+
+          kubectl -n prometheus-operator get svc prometheus-operated >/dev/null 2>&1 || {
+            echo "❌ Prometheus service not found"
+            exit 1
+          }
+
+          echo "✅ Prometheus is ready for chaos test"
+
+      - name: Run Jepsen + Chaos test
+        run: |
+          export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+          export LITMUS_NAMESPACE=litmus
+          export PROMETHEUS_NAMESPACE=prometheus-operator
+
+          echo "=== Starting Jepsen + Chaos Test ==="
+          echo "Cluster: pg-eu"
+          echo "Namespace: app"
+          echo "Chaos duration: ${{ inputs.chaos_duration || '300' }} seconds"
+          echo ""
+
+          ./scripts/run-jepsen-chaos-test.sh pg-eu app ${{ inputs.chaos_duration || '300' }}
+
+      - name: Collect test results
+        if: always()
+        run: |
+          export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+
+          echo "=== Collecting Test Results ==="
+
+          RESULTS_DIR=$(ls -td logs/jepsen-chaos-* 2>/dev/null | head -1 || echo "")
+
+          if [ -z "$RESULTS_DIR" ]; then
+            echo "❌ No results directory found"
+            exit 0
+          fi
+
+          echo "Results directory: $RESULTS_DIR"
+          echo ""
+
+          echo "=== Litmus Verdict ==="
+          kubectl -n litmus get chaosresult cnpg-jepsen-chaos-pod-delete \
+            -o jsonpath='{.status.experimentStatus.verdict}' 2>/dev/null || echo "No chaos result found"
+
+          echo ""
+          echo "=== Test Summary ==="
+          ls -lh "$RESULTS_DIR"/ 2>/dev/null || true
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: chaos-test-results-${{ github.run_number }}
+          path: |
+            logs/jepsen-chaos-*/results/history.edn
+            logs/jepsen-chaos-*/results/STATISTICS.txt
+            logs/jepsen-chaos-*/results/*.png
+            logs/jepsen-chaos-*/chaos-results/chaosresult.yaml
+            logs/jepsen-chaos-*/test.log
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Display final status
+        if: always()
+        run: |
+          export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+
+          echo ""
+          echo "=== Final Cluster Status ==="
+          kubectl get cluster pg-eu || true
+          kubectl get pods -l cnpg.io/cluster=pg-eu || true
+
+          echo ""
+          echo "=== Chaos Engine Status ==="
+          kubectl -n litmus get chaosengine || true
+
+          echo ""
+          echo "✅ Chaos test workflow completed!"

@@ -1,0 +1,59 @@
+---
+# CNPG Jepsen + Litmus Chaos Integration (No Probes Version)
+#
+# This is the probe-free variant of cnpg-jepsen-chaos.yaml for environments
+# Use this ChaosEngine when Prometheus/Grafana is not yet installed.
+#
+# The Prometheus probes that validate cluster health before/after chaos
+# are removed, so verdicts will not depend on Prometheus availability.
+#
+# After installing monitoring (cnpg-playground ./monitoring/setup.sh), switch to the
+# probe-enabled version: experiments/cnpg-jepsen-chaos.yaml
+# for full observability.
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: cnpg-jepsen-chaos-noprobes
+  namespace: litmus
+  labels:
+    instance_id: cnpg-jepsen-chaos-noprobes
+    context: cloudnativepg-consistency-testing
+    experiment_type: pod-delete-with-jepsen
+    target_type: primary
+    risk_level: high
+    test_approach: consistency-verification
+spec:
+  engineState: "active"
+  annotationCheck: "false"
+  auxiliaryAppInfo: ""
+
+  # Target the CNPG cluster
+  appinfo:
+    appns: "default"
+
+  chaosServiceAccount: litmus-admin
+
+  # Job cleanup policy
+  jobCleanUpPolicy: "retain"
+
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            # Explicitly target CNPG Cluster pods via TARGETS so we can
+            # keep appkind empty (CRD only allows native workload kinds)
+            - name: TARGETS
+              value: "cluster:default:[cnpg.io/instanceRole=primary]"
+            - name: TARGET_PODS
+              value: ""
+            - name: TOTAL_CHAOS_DURATION
+              value: "600" # Run chaos for 10 minutes
+            - name: CHAOS_INTERVAL
+              value: "60" # Delete primary every 60s
+            - name: PODS_AFFECTED_PERC
+              value: "100"
+            - name: FORCE
+              value: "false"
+            - name: RAMP_TIME
+              value: "0"

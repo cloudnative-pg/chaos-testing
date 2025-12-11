@@ -1,0 +1,217 @@
+---
+# CNPG Jepsen + Litmus Chaos Integration
+#
+# This experiment combines:
+# 1. Jepsen continuous consistency testing (50 ops/sec)
+# 2. Primary pod deletion chaos (every 60s)
+# 3. Simplified probe monitoring (5 probes vs 16)
+#
+# Features:
+# - Tests consistency during failover scenarios
+# - Detects lost writes and anomalies
+# - Monitors cluster recovery
+# - Validates replication lag after chaos
+#
+# Prerequisites:
+# - Jepsen workload Job must be running (deployed separately)
+# - Prometheus monitoring enabled
+# - CNPG cluster healthy
+#
+# Usage:
+#   # Start Jepsen workload first
+#   kubectl apply -f workloads/jepsen-cnpg-job.yaml
+#
+#   # Wait for Jepsen to start (30s)
+#   sleep 30
+#
+#   # Apply chaos experiment
+#   kubectl apply -f experiments/cnpg-jepsen-chaos.yaml
+#
+#   # Monitor
+#   kubectl get chaosengine cnpg-jepsen-chaos -w
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: cnpg-jepsen-chaos
+  namespace: litmus
+  labels:
+    instance_id: cnpg-jepsen-chaos
+    context: cloudnativepg-consistency-testing
+    experiment_type: pod-delete-with-jepsen
+    target_type: primary
+    risk_level: high
+    test_approach: consistency-verification
+spec:
+  engineState: "active"
+  annotationCheck: "false"
+  auxiliaryAppInfo: ""
+
+  # Target the CNPG cluster
+  appinfo:
+    appns: "default"
+
+  chaosServiceAccount: litmus-admin
+
+  # Job cleanup policy
+  jobCleanUpPolicy: "retain"
+
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            # Explicitly target CNPG Cluster pods via TARGETS so we can
+            # keep appkind empty (CRD only allows native workload kinds)
+            - name: TARGETS
+              value: "cluster:default:[cnpg.io/instanceRole=primary]"
+            - name: TARGET_PODS
+              value: ""
+            - name: TOTAL_CHAOS_DURATION
+              value: "300" # Run chaos for 5 minutes (matches typical test duration)
+            - name: CHAOS_INTERVAL
+              value: "180" # Delete primary every 3 minutes
+            - name: PODS_AFFECTED_PERC
+              value: "100"
+            - name: FORCE
+              value: "false"
+            - name: RAMP_TIME
+              value: "0"
+        probe:
+          # PROMETHEUS_PROBES_START (requires monitoring stack in README §5)
+          # ==========================================
+          # Start of Test (SOT) Probes - Pre-chaos validation
+          # ==========================================
+
+          # Probe 1: Verify CNPG cluster is healthy before chaos
+          - name: cluster-healthy-sot
+            type: promProbe
+            promProbe/inputs:
+              endpoint: "http://prometheus-operated.prometheus-operator.svc:9090"
+              query: "sum(cnpg_collector_up{cluster='pg-eu'})"
+              comparator:
+                criteria: ">="
+                value: "3"
+            mode: SOT
+            runProperties:
+              probeTimeout: "10s"
+              interval: "5s"
+              retry: 3
+
+          # Probe 2: Verify Jepsen Job pod is running
+          - name: jepsen-job-running-sot
+            type: cmdProbe
+            cmdProbe/inputs:
+              command: /bin/bash -c "if kubectl -n default get pods -l app=jepsen-test --field-selector=status.phase=Running --no-headers 2>/dev/null | grep -q .; then echo Running; else echo NotRunning; fi"
+              comparator:
+                type: string
+                criteria: "equal"
+                value: "Running"
+            mode: SOT
+            runProperties:
+              probeTimeout: "10s"
+              interval: "5s"
+              retry: 3
+
+          # ==========================================
+          # Continuous Probes - During chaos monitoring
+          # ==========================================
+          # NOTE: Continuous probes removed because:
+          # - Replication lag > 30s during primary deletion is EXPECTED
+          # - Probe was failing on normal chaos behavior, causing experiment Error
+          # - Jepsen tracks all operation failures already
+          # - EOT probes verify recovery after chaos
+
+          # ==========================================
+          # End of Test (EOT) Probes - Post-chaos validation
+          # ==========================================
+
+          # Probe 4: Verify cluster recovered and is healthy
+          - name: cluster-recovered-eot
+            type: promProbe
+            promProbe/inputs:
+              endpoint: "http://prometheus-operated.prometheus-operator.svc:9090"
+              query: "sum(cnpg_collector_up{cluster='pg-eu'})"
+              comparator:
+                criteria: ">="
+                value: "3"
+            mode: EOT
+            runProperties:
+              probeTimeout: "10s"
+              interval: "10s"
+              retry: 5
+              initialDelay: "30s" # Wait for cluster to stabilize
+
+          # Probe 5: Verify replicas are attached to primary
+          - name: replicas-attached-eot
+            type: promProbe
+            promProbe/inputs:
+              endpoint: "http://prometheus-operated.prometheus-operator.svc:9090"
+              query: "max(cnpg_pg_replication_streaming_replicas{job='pg-eu'})"
+              comparator:
+                criteria: ">="
+                value: "2"
+            mode: EOT
+            runProperties:
+              probeTimeout: "15s"
+              interval: "15s"
+              retry: 5
+              initialDelay: "30s" # Wait for replication to stabilize
+          # PROMETHEUS_PROBES_END
+---
+# Probe Summary:
+# ================
+# Current experiment: 4 probes (2 SOT + 2 EOT)
+# Reduced from 7 probes - removed ineffective and problematic probes
+#
+# Probe Breakdown:
+# ----------------
+# SOT (Start of Test):
+#   1. cluster-healthy-sot          - Verify all CNPG instances are up
+#   2. jepsen-job-running-sot       - Verify Jepsen workload pod is running
+#
+# Continuous (During Chaos):
+#   REMOVED - replication-lag-continuous caused experiment Error on expected behavior
+#
+# EOT (End of Test):
+#   3. cluster-recovered-eot        - Verify all instances recovered post-chaos
+#   4. replicas-attached-eot        - Verify replication fully restored
+#
+# Removed Probes and Why:
+# -------------------------
+# ❌ wait-for-primary-label (Continuous)
+#    - Runs as non-blocking goroutine, can't prevent TARGET_SELECTION_ERROR
+#    - Cannot block target selection (see: chaoslib/litmus/pod-delete/lib/pod-delete.go)
+#    - PreTargetSelection probe mode needed (GitHub issue to be filed)
+#
+# ❌ transaction-rate-continuous (Continuous)
+#    - Redundant: Jepsen tracks ALL operations automatically
+#    - Jepsen provides better insights (history.edn has complete op tracking)
+#
+# ❌ replication-lag-continuous (Continuous)
+#    - Failed on EXPECTED behavior (lag > 30s during primary deletion)
+#    - Caused entire experiment to go to "Error" state
+#    - Jepsen already tracks all operation failures during chaos
+#
+# Why Probes Show N/A:
+# ---------------------
+# In previous tests, Continuous/EOT probes showed "N/A" because:
+# 1. Experiment was ABORTED by cleanup script
+# 2. Chaos failed multiple times with TARGET_SELECTION_ERROR
+# 3. Probes never had a chance to execute fully
+# 4. Only SOT probes executed (before chaos started)
+#
+# What Jepsen Handles:
+# ---------------------
+# - ✅ Consistency verification (mathematical proof of correctness)
+# - ✅ Write tracking (every append operation recorded)
+# - ✅ Read tracking (every read operation recorded)
+# - ✅ Anomaly detection (G-single, lost writes, etc.)
+# - ✅ Operation statistics (success/fail/info rates)
+# - ✅ Latency analysis (p50, p95, p99, etc.)
+#
+# Minimal Probe Philosophy:
+# --------------------------
+# Since Jepsen provides comprehensive consistency testing:
+# - Focus probes on infrastructure health only
+# - Avoid duplicating what Jepsen already tracks
+# - Keep probe count minimal for clarity and maintainability

@@ -1,0 +1,82 @@
+name: 'Setup Kind Cluster via CNPG Playground'
+description: 'Create Kind cluster using cnpg-playground setup (proven, tested configuration)'
+branding:
+  icon: 'box'
+  color: 'blue'
+
+inputs:
+  region:
+    description: 'Region name for the cluster'
+    required: false
+    default: 'eu'
+
+outputs:
+  kubeconfig:
+    description: 'Path to kubeconfig file'
+    value: ${{ steps.setup-cluster.outputs.kubeconfig }}
+  cluster-name:
+    description: 'Name of the created cluster'
+    value: ${{ steps.setup-cluster.outputs.cluster_name }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Clone cnpg-playground
+      shell: bash
+      run: |
+        echo "Cloning cnpg-playground for cluster setup..."
+        git clone --depth 1 https://github.com/cloudnative-pg/cnpg-playground.git /tmp/cnpg-playground
+        cd /tmp/cnpg-playground
+        echo "✅ cnpg-playground cloned"
+    
+    - name: Setup Kind cluster using cnpg-playground
+      id: setup-cluster
+      shell: bash
+      run: |
+        cd /tmp/cnpg-playground
+        
+        echo "Creating Kind cluster for region: ${{ inputs.region }}"
+        ./scripts/setup.sh ${{ inputs.region }}
+        
+        # Export kubeconfig path
+        KUBECONFIG_PATH="/tmp/cnpg-playground/k8s/kube-config.yaml"
+        CLUSTER_NAME="k8s-${{ inputs.region }}"
+        
+        echo "kubeconfig=${KUBECONFIG_PATH}" >> $GITHUB_OUTPUT
+        echo "cluster_name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
+        
+        # Set for subsequent steps
+        echo "KUBECONFIG=${KUBECONFIG_PATH}" >> $GITHUB_ENV
+        
+        echo "✅ Kind cluster created: kind-${CLUSTER_NAME}"
+    
+    - name: Verify cluster and display info
+      shell: bash
+      run: |
+        export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
+        
+        echo ""
+        echo "=== Cluster Information ==="
+        kubectl cluster-info --context kind-k8s-${{ inputs.region }}
+        
+        echo ""
+        echo "=== Nodes ==="
+        kubectl get nodes -o wide
+        
+        echo ""
+        echo "=== Node Labels (PostgreSQL nodes) ==="
+        kubectl get nodes -l node-role.kubernetes.io/postgres --show-labels
+        
+        echo ""
+        echo "=== Verify PostgreSQL nodes ==="
+        POSTGRES_NODES=$(kubectl get nodes -l node-role.kubernetes.io/postgres --no-headers | wc -l)
+        echo "Found ${POSTGRES_NODES} PostgreSQL nodes"
+        
+        if [ "$POSTGRES_NODES" -ge 2 ]; then
+          echo "✅ Sufficient PostgreSQL nodes for HA testing"
+        else
+          echo "⚠️  Warning: Less than 2 PostgreSQL nodes found"
+        fi
+        
+        echo ""
+        echo "✅ Cluster is ready for CNPG deployment!"
