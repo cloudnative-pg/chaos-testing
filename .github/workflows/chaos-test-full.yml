@@ -62,6 +62,8 @@ jobs:
           echo "✅ Prometheus is ready for chaos test"
 
       - name: Run Jepsen + Chaos test
+        env:
+          CHAOS_DURATION: ${{ inputs.chaos_duration || '300' }}
         run: |
           export KUBECONFIG=/tmp/cnpg-playground/k8s/kube-config.yaml
           export LITMUS_NAMESPACE=litmus
@@ -70,10 +72,10 @@ jobs:
           echo "=== Starting Jepsen + Chaos Test ==="
           echo "Cluster: pg-eu"
           echo "Namespace: app"
-          echo "Chaos duration: ${{ inputs.chaos_duration || '300' }} seconds"
+          echo "Chaos duration: ${CHAOS_DURATION} seconds"
           echo ""
 
-          ./scripts/run-jepsen-chaos-test.sh pg-eu app ${{ inputs.chaos_duration || '300' }}
+          ./scripts/run-jepsen-chaos-test.sh pg-eu app "${CHAOS_DURATION}"
 
       - name: Collect test results
         if: always()
